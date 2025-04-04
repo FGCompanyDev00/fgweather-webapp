@@ -248,24 +248,18 @@ export default function Settings() {
               title: "Weather alerts enabled",
               description: "You will receive your first weather update in about a minute.",
             });
-            
-            // Send immediate test notification without vibrate property
-            new Notification('Weather Alerts Enabled', {
-              body: 'You will receive hourly weather updates. This is a test notification.',
-              icon: '/icons/icon-192x192.png'
-            });
           } else {
             toast({
-              title: "Permission denied",
-              description: "You need to allow notifications to receive weather alerts.",
+              title: "Notification permission denied",
+              description: "Please enable notifications in your browser settings to receive weather alerts.",
               variant: "destructive",
             });
           }
-        } catch (error) {
-          console.error('Error requesting notification permission:', error);
+        } catch (err) {
+          console.error("Error requesting notification permission:", err);
           toast({
-            title: "Permission error",
-            description: "There was an error requesting notification permission.",
+            title: "Error enabling notifications",
+            description: "There was a problem requesting notification permission.",
             variant: "destructive",
           });
         }
@@ -283,11 +277,104 @@ export default function Settings() {
         });
       }
     } else {
-      // Turning OFF alerts
+      // Disable alerts
       setWeatherAlerts(prev => ({ ...prev, enabled: false }));
       toast({
         title: "Weather alerts disabled",
-        description: "You will no longer receive weather updates.",
+        description: "You will no longer receive weather alerts.",
+      });
+    }
+  };
+  
+  // Send a test notification immediately
+  const sendTestNotification = async () => {
+    // Check if notifications are supported
+    if (!notificationSupported) {
+      toast({
+        title: "Notifications not supported",
+        description: "Your browser does not support notifications.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Request permission if not already granted
+    if (Notification.permission !== 'granted') {
+      try {
+        const permission = await Notification.requestPermission();
+        setNotificationPermission(permission);
+        
+        if (permission !== 'granted') {
+          toast({
+            title: "Notification permission denied",
+            description: "Please enable notifications in your browser settings to receive weather alerts.",
+            variant: "destructive",
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Error requesting notification permission:", err);
+        toast({
+          title: "Error enabling notifications",
+          description: "There was a problem requesting notification permission.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    
+    // Get location info for the notification
+    const locationName = localStorage.getItem('fg-weather-location-name') || 'your location';
+    const coordinates = localStorage.getItem('fg-weather-coordinates');
+    
+    // Create a test notification
+    try {
+      if (coordinates) {
+        // Fetch current weather data
+        const response = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${JSON.parse(coordinates).latitude}&longitude=${JSON.parse(coordinates).longitude}&current=temperature_2m,weather_code,precipitation&timezone=auto`
+        );
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch weather data');
+        }
+        
+        const data = await response.json();
+        
+        // Create notification with actual weather data
+        const message = `Current temperature at ${locationName}: ${Math.round(data.current.temperature_2m)}°${unit}. This is a test notification.`;
+        
+        new Notification('Weather Alert Test', {
+          body: message,
+          icon: '/icons/icon-192x192.png',
+          badge: '/icons/icon-72x72.png',
+          tag: 'weather-test'
+        });
+        
+        toast({
+          title: "Test notification sent",
+          description: "If you don't see the notification, please check your browser/system settings.",
+        });
+      } else {
+        // Fallback if no location data
+        new Notification('Weather Alert Test', {
+          body: `This is a test weather notification. Actual alerts will include current weather data for ${locationName}.`,
+          icon: '/icons/icon-192x192.png',
+          badge: '/icons/icon-72x72.png',
+          tag: 'weather-test'
+        });
+        
+        toast({
+          title: "Test notification sent",
+          description: "If you don't see the notification, please check your browser/system settings.",
+        });
+      }
+    } catch (error) {
+      console.error('Error sending test notification:', error);
+      toast({
+        title: "Error sending test notification",
+        description: "There was a problem fetching weather data or sending the notification.",
+        variant: "destructive",
       });
     }
   };
@@ -480,17 +567,37 @@ export default function Settings() {
                 </div>
                 
                 <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <Label htmlFor="notifications">Weather Alerts</Label>
-                      <p className="text-sm text-muted-foreground">Receive notifications for weather updates</p>
-                  </div>
-                  <Switch 
-                    id="notifications" 
-                      checked={weatherAlerts.enabled} 
-                      onCheckedChange={handleToggleWeatherAlerts}
-                      disabled={!notificationSupported || notificationPermission === 'denied'}
-                    />
+                  <div className="flex flex-col gap-6">
+                    <div className="grid gap-3">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="alert-enable">Weather Alerts</Label>
+                          <p className="text-sm text-muted-foreground">
+                            {weatherAlerts.enabled 
+                              ? `Every ${weatherAlerts.interval} minutes` 
+                              : "Receive weather updates periodically"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          {weatherAlerts.enabled && (
+                            <Button
+                              size="sm"
+                              variant="outline" 
+                              onClick={sendTestNotification}
+                              className="flex items-center gap-2"
+                            >
+                              <Bell className="h-4 w-4" />
+                              <span>Test</span>
+                            </Button>
+                          )}
+                          <Switch 
+                            id="alert-enable"
+                            checked={weatherAlerts.enabled}
+                            onCheckedChange={handleToggleWeatherAlerts}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   
                   {weatherAlerts.enabled && (

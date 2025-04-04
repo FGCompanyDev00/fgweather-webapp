@@ -122,7 +122,7 @@ const Index = () => {
     if (isError && error) {
       toast({
         title: "Failed to load weather data",
-        description: error instanceof Error ? error.message : "Please try again later",
+        description: error instanceof Error ? error.message : "Please try again later", 
         variant: "destructive",
       });
     }
@@ -282,7 +282,7 @@ const Index = () => {
         setIsCurrentLocation(true);
         
         toast({
-          title: "Location updated",
+          title: "Location updated", 
           description: "Showing weather for your current location.",
         });
       }

@@ -161,11 +161,7 @@ export default function AirQuality() {
         console.error("Geolocation error:", err);
         setIsDetectingLocation(false);
         // Keep default location if geolocation fails
-        toast({
-          title: "Location detection failed",
-          description: "Using default location (Kuala Lumpur).",
-          variant: "destructive",
-        });
+        toast.error("Location detection failed. Using default location (Kuala Lumpur).");
       });
     }
   }, []);
