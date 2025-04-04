@@ -365,10 +365,17 @@ export const fetchWeatherDataOptimized = async (
 };
 
 /**
- * Clear all cached weather data
+ * Clears all cached weather data
  */
-export const clearWeatherCache = (): void => {
-  cache.clear();
+export const clearWeatherCache = () => {
+  if (typeof responseCache !== 'undefined') {
+    responseCache.clear();
+  }
+  
+  if (typeof cache !== 'undefined') {
+    cache.clear();
+  }
+  
   console.log("Weather cache cleared");
 };
 

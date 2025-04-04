@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Helmet } from "react-helmet-async";
 import { 
   Moon, Sun, BellRing, BellOff, Trash2, 
-  RefreshCw, AlertTriangle, MapPin, Bell
+  RefreshCw, AlertTriangle, MapPin, Bell, Database, RotateCcw
 } from "lucide-react";
 import { Navigation } from "@/components/Navigation";
 import { 
@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useTheme } from "@/lib/utils/theme-provider";
-import { fetchWeatherByCoordinates } from "@/lib/utils/weather-api";
+import { fetchWeatherByCoordinates, clearWeatherCache } from "@/lib/utils/weather-api";
 import { formatTemperature } from "@/lib/utils/weather-utils";
 import { useLoading } from "@/App";
 import { LocationSearch } from "@/components/LocationSearch";
@@ -183,6 +183,35 @@ export default function Settings() {
     updateLocation(locationData);
   };
   
+  // Clear app data (confirmations, saved locations, etc.)
+  const clearAppData = () => {
+    // Show confirmation dialog
+    if (window.confirm("Are you sure you want to clear all app data? This cannot be undone.")) {
+      // Clear localStorage
+      localStorage.removeItem("fg-weather-location");
+      localStorage.removeItem("fg-weather-unit");
+      localStorage.removeItem("fg-weather-bookmarked-news");
+      localStorage.removeItem("fg-weather-remember-location");
+      localStorage.removeItem("fg-weather-api-failed-date");
+      
+      // Clear caches
+      clearWeatherCache();
+      
+      toast.success("All app data has been cleared");
+      
+      // Reload the page after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    }
+  };
+
+  // Clear just the weather cache (for faster data refresh)
+  const clearCacheOnly = () => {
+    clearWeatherCache();
+    toast.success("Weather cache cleared");
+  };
+  
   const pageVariants = {
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
@@ -316,38 +345,53 @@ export default function Settings() {
               </CardContent>
             </Card>
             
-            <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg">
+            <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg overflow-hidden">
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Trash2 className="mr-2 h-5 w-5 text-red-500" />
+                <CardTitle className="flex items-center space-x-2">
+                  <Database className="h-5 w-5" />
                   <span>Data Management</span>
                 </CardTitle>
+                <CardDescription>
+                  Manage your data and application preferences
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Clear All Data</Label>
-                  <CardDescription>
-                    This will reset all your preferences and saved data
-                  </CardDescription>
-                  
-                  <Button 
-                    variant="destructive" 
-                    size="sm"
-                    className="mt-2"
-                    onClick={handleClearAllData}
-                  >
-                    Reset All Settings
-                  </Button>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-sm font-medium">Weather Data Cache</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Clear cached weather data to fetch fresh information
+                      </p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={clearCacheOnly}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Clear Cache
+                    </Button>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-sm font-medium">Reset Application</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Clear all settings, bookmarks, and cached data
+                      </p>
+                    </div>
+                    <Button 
+                      variant="destructive" 
+                      size="sm"
+                      onClick={clearAppData}
+                    >
+                      <AlertTriangle className="h-4 w-4 mr-2" />
+                      Reset All
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
-              <CardFooter className="border-t px-6 py-4 bg-slate-50/50 dark:bg-slate-800/50">
-                <div className="flex items-start space-x-2 text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs">
-                    Clearing data cannot be undone. All your preferences will be reset to default.
-                  </p>
-                </div>
-              </CardFooter>
             </Card>
           </div>
         </motion.main>

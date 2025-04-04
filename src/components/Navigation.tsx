@@ -1,6 +1,6 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { 
   Home, 
@@ -12,6 +12,7 @@ import {
   Newspaper
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 
 interface NavItem {
   path: string;
@@ -22,6 +23,7 @@ interface NavItem {
 export function Navigation() {
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
   
   const navItems: NavItem[] = [
     { path: "/", label: "Weather", icon: <Home className="h-5 w-5" /> },
@@ -34,6 +36,14 @@ export function Navigation() {
   const isActive = (path: string) => {
     return location.pathname === path;
   };
+  
+  // Update active tab index when location changes
+  useEffect(() => {
+    const index = navItems.findIndex(item => isActive(item.path));
+    if (index !== -1) {
+      setActiveTabIndex(index);
+    }
+  }, [location.pathname]);
 
   return (
     <>
@@ -70,44 +80,53 @@ export function Navigation() {
         ))}
       </nav>
 
-      {/* Mobile Navigation */}
-      <Sheet open={isOpen} onOpenChange={setIsOpen}>
-        <SheetTrigger asChild className="md:hidden">
-          <button 
-            className="p-2 rounded-full bg-white/30 dark:bg-slate-800/30 backdrop-blur-md shadow-lg border border-white/20 dark:border-slate-700/20"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-        </SheetTrigger>
-        <SheetContent side="left" className="w-[250px] bg-gradient-to-br from-white/80 to-white/60 dark:from-slate-900/90 dark:to-slate-800/80 backdrop-blur-lg">
-          <div className="flex flex-col space-y-6 h-full py-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold gradient-text">FGWeather</h2>
-              <button onClick={() => setIsOpen(false)}>
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <nav className="flex flex-col space-y-2">
-              {navItems.map((item) => (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setIsOpen(false)}
-                  className={cn(
-                    "flex items-center space-x-3 px-4 py-3 rounded-lg transition-all",
-                    isActive(item.path) 
-                      ? "bg-primary text-white shadow-md" 
-                      : "hover:bg-white/20 dark:hover:bg-slate-700/30"
-                  )}
-                >
-                  {item.icon}
-                  <span className="text-sm font-medium">{item.label}</span>
-                </Link>
-              ))}
-            </nav>
-          </div>
-        </SheetContent>
-      </Sheet>
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/60 dark:bg-slate-900/80 backdrop-blur-xl shadow-lg border-t border-white/20 dark:border-slate-700/30 z-50">
+        <div className="flex justify-around items-center h-16">
+          {navItems.map((item, index) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={cn(
+                "flex flex-col items-center justify-center w-16 h-16 relative",
+                isActive(item.path) ? "text-primary" : "text-foreground/60"
+              )}
+              onClick={() => setActiveTabIndex(index)}
+            >
+              {isActive(item.path) && (
+                <motion.div
+                  layoutId="mobile-nav-indicator"
+                  className="absolute inset-x-2 top-0 h-1 bg-primary rounded-b-md"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                />
+              )}
+              <motion.div
+                whileTap={{ scale: 0.9 }}
+                animate={isActive(item.path) ? { y: -2 } : { y: 0 }}
+                className={cn(
+                  "flex items-center justify-center rounded-full p-1.5",
+                  isActive(item.path) ? "bg-primary/20" : ""
+                )}
+              >
+                {React.cloneElement(item.icon as React.ReactElement, { 
+                  className: cn(
+                    "h-5 w-5 transition-colors",
+                    isActive(item.path) ? "stroke-primary" : "stroke-foreground/60"
+                  ) 
+                })}
+              </motion.div>
+              <span className={cn(
+                "text-xs mt-1 font-medium transition-colors",
+                isActive(item.path) ? "text-primary" : "text-foreground/60"
+              )}>
+                {item.label}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </nav>
     </>
   );
 }
