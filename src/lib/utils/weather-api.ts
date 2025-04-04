@@ -1,8 +1,12 @@
-
 import axios from "axios";
 
 // Constants
 const BASE_URL = "https://api.open-meteo.com/v1";
+const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+
+// Cache for API responses to reduce unnecessary network requests
+const responseCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
 
 // Weather API types
 export type WeatherUnit = "celsius" | "fahrenheit";
@@ -70,60 +74,120 @@ export interface GeocodingResult {
   admin2?: string;  // County/District
 }
 
+// Helper function to create cache keys
+const createCacheKey = (endpoint: string, params: Record<string, any>): string => {
+  return `${endpoint}:${JSON.stringify(params)}`;
+};
+
+// Helper function to check cache for valid data
+const getFromCache = <T>(cacheKey: string): T | null => {
+  const cached = responseCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data as T;
+  }
+  return null;
+};
+
+// Helper function to add data to cache
+const addToCache = (cacheKey: string, data: any): void => {
+  responseCache.set(cacheKey, {
+    data,
+    timestamp: Date.now(),
+  });
+};
+
+// Function to fetch with retries and caching
+const fetchWithRetry = async <T>(
+  url: string, 
+  params: Record<string, any>, 
+  maxRetries: number = 3
+): Promise<T> => {
+  const cacheKey = createCacheKey(url, params);
+  const cachedData = getFromCache<T>(cacheKey);
+  
+  if (cachedData) {
+    return cachedData;
+  }
+  
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await axios.get(url, { params });
+      const data = response.data;
+      
+      // Cache successful response
+      addToCache(cacheKey, data);
+      
+      return data;
+    } catch (error) {
+      lastError = error instanceof Error 
+        ? error 
+        : new Error('Unknown error occurred');
+      
+      // Only wait before retrying if this is not the last attempt
+      if (attempt < maxRetries - 1) {
+        // Exponential backoff: 500ms, 1500ms, 3500ms, etc.
+        await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+      }
+    }
+  }
+  
+  throw lastError || new Error('Failed after multiple retry attempts');
+};
+
 // Function to fetch weather data based on coordinates
 export const fetchWeatherByCoordinates = async (
   coordinates: Coordinates,
   unit: WeatherUnit = "celsius"
 ): Promise<WeatherData> => {
   try {
-    const response = await axios.get(`${BASE_URL}/forecast`, {
-      params: {
-        latitude: coordinates.latitude,
-        longitude: coordinates.longitude,
-        current: [
-          "temperature_2m",
-          "weather_code",
-          "wind_speed_10m",
-          "wind_direction_10m",
-          "relative_humidity_2m",
-          "surface_pressure",
-          "apparent_temperature",
-          "is_day",
-          "precipitation",
-          "uv_index"
-        ],
-        hourly: [
-          "temperature_2m",
-          "weather_code",
-          "wind_speed_10m",
-          "relative_humidity_2m",
-          "precipitation",
-          "precipitation_probability",
-          "apparent_temperature",
-          "uv_index",
-          "is_day"
-        ],
-        daily: [
-          "weather_code",
-          "temperature_2m_max",
-          "temperature_2m_min",
-          "sunrise",
-          "sunset",
-          "precipitation_sum",
-          "precipitation_probability_max",
-          "wind_speed_10m_max",
-          "uv_index_max"
-        ],
-        temperature_unit: unit,
-        wind_speed_unit: "kmh",
-        timezone: "auto",
-        forecast_days: 7
-      }
-    });
+    const params = {
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
+      current: [
+        "temperature_2m",
+        "weather_code",
+        "wind_speed_10m",
+        "wind_direction_10m",
+        "relative_humidity_2m",
+        "surface_pressure",
+        "apparent_temperature",
+        "is_day",
+        "precipitation",
+        "uv_index"
+      ],
+      hourly: [
+        "temperature_2m",
+        "weather_code",
+        "wind_speed_10m",
+        "relative_humidity_2m",
+        "precipitation",
+        "precipitation_probability",
+        "apparent_temperature",
+        "uv_index",
+        "is_day"
+      ],
+      daily: [
+        "weather_code",
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "sunrise",
+        "sunset",
+        "precipitation_sum",
+        "precipitation_probability_max",
+        "wind_speed_10m_max",
+        "uv_index_max"
+      ],
+      temperature_unit: unit,
+      wind_speed_unit: "kmh",
+      timezone: "auto",
+      forecast_days: 7
+    };
+
+    const data = await fetchWithRetry<any>(`${BASE_URL}/forecast`, params);
 
     // Map API response to our interface
-    const data = response.data;
-
     const weatherData: WeatherData = {
       latitude: data.latitude,
       longitude: data.longitude,
@@ -170,23 +234,26 @@ export const fetchWeatherByCoordinates = async (
     return weatherData;
   } catch (error) {
     console.error("Error fetching weather data:", error);
-    throw new Error("Failed to fetch weather data. Please try again.");
+    throw new Error("Failed to fetch weather data. Please check your connection and try again.");
   }
 };
 
 // Function to search for a location using geocoding API
 export const searchLocation = async (query: string): Promise<GeocodingResult[]> => {
+  if (!query || query.trim().length < 2) {
+    return [];
+  }
+  
   try {
-    const response = await axios.get("https://geocoding-api.open-meteo.com/v1/search", {
-      params: {
-        name: query,
-        count: 10,
-        language: "en",
-        format: "json"
-      }
-    });
-
-    return response.data.results || [];
+    const params = {
+      name: query,
+      count: 10,
+      language: "en",
+      format: "json"
+    };
+    
+    const data = await fetchWithRetry<any>(GEOCODING_URL, params);
+    return data.results || [];
   } catch (error) {
     console.error("Error searching for location:", error);
     throw new Error("Failed to search for location. Please try again.");
@@ -201,19 +268,40 @@ export const getCurrentLocation = (): Promise<Coordinates> => {
       return;
     }
 
+    const timeoutId = setTimeout(() => {
+      reject(new Error("Location request timed out. Please try again."));
+    }, 10000); // 10 second timeout
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        clearTimeout(timeoutId);
         resolve({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude
         });
       },
       (error) => {
-        reject(
-          new Error(
-            "Unable to retrieve your location. Please enable location access."
-          )
-        );
+        clearTimeout(timeoutId);
+        let errorMessage = "Unable to retrieve your location.";
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Location access was denied. Please enable location services.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = "Location information is unavailable. Please try again later.";
+            break;
+          case error.TIMEOUT:
+            errorMessage = "Location request timed out. Please try again.";
+            break;
+        }
+        
+        reject(new Error(errorMessage));
+      },
+      {
+        enableHighAccuracy: false, // Set to false for faster response
+        timeout: 10000, // 10 seconds
+        maximumAge: 1000 * 60 * 10 // 10 minutes - accept cached position
       }
     );
   });

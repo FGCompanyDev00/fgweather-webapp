@@ -18,17 +18,23 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { LocationSearch } from "@/components/LocationSearch";
 import { fetchAirQualityData } from "@/lib/utils/air-quality-api";
+import { useLoading } from "@/App";
 
 interface AirQualityLevels {
   [key: string]: {
     title: string;
     color: string;
+    textColor: string;
+    bgColor: string;
+    progressColor: string;
     description: string;
+    emoji: string;
   }
 }
 
 export default function AirQuality() {
-  const [location, setLocation] = useState({ lat: 51.5074, lon: -0.1278, name: "London" }); // Default to London
+  const [location, setLocation] = useState({ lat: 3.1390, lon: 101.6869, name: "Kuala Lumpur" }); // Default to Kuala Lumpur
+  const { setIsLoading, setLoadingMessage } = useLoading();
   
   const { data: airQualityData, isLoading, error, refetch } = useQuery({
     queryKey: ['airQuality', location.lat, location.lon],
@@ -37,17 +43,64 @@ export default function AirQuality() {
     retry: 2
   });
 
+  // Use the saved location from localStorage if "remember location" is enabled
+  useEffect(() => {
+    const rememberLocation = localStorage.getItem('fg-weather-remember-location') === 'true';
+    
+    if (rememberLocation) {
+      const savedCoords = localStorage.getItem('fg-weather-coordinates');
+      const savedLocationName = localStorage.getItem('fg-weather-location-name');
+      
+      if (savedCoords && savedLocationName) {
+        try {
+          const coords = JSON.parse(savedCoords);
+          setLocation({ 
+            lat: coords.latitude, 
+            lon: coords.longitude,
+            name: savedLocationName
+          });
+        } catch (e) {
+          console.error("Error parsing saved coordinates:", e);
+        }
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((position) => {
-        setLocation(prev => ({ 
-          ...prev, 
-          lat: position.coords.latitude, 
-          lon: position.coords.longitude,
-          name: "Your Location" 
-        }));
+      setIsLoading(true);
+      setLoadingMessage("Detecting your location...");
+      
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        try {
+          // Get the actual location name using reverse geocoding
+          const response = await fetch(
+            `https://geocoding-api.open-meteo.com/v1/search?latitude=${position.coords.latitude}&longitude=${position.coords.longitude}&count=1&language=en&format=json`
+          );
+          
+          const data = await response.json();
+          const locationName = data.results?.[0]?.name || "Your Location";
+          
+          setLocation({ 
+            lat: position.coords.latitude, 
+            lon: position.coords.longitude,
+            name: locationName
+          });
+          
+          toast.success(`Location detected: ${locationName}`);
+        } catch (err) {
+          console.error("Geocoding error:", err);
+          setLocation({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            name: "Your Location"
+          });
+        } finally {
+          setIsLoading(false);
+        }
       }, (err) => {
         console.error("Geolocation error:", err);
+        setIsLoading(false);
         // Keep default location if geolocation fails
       });
     }
@@ -64,32 +117,52 @@ export default function AirQuality() {
     exit: { opacity: 0, y: -20 }
   };
 
-  // Air quality levels definitions
+  // Air quality levels definitions with improved colors
   const airQualityLevels: AirQualityLevels = {
     "1": { 
       title: "Good", 
-      color: "bg-green-500", 
-      description: "Air quality is satisfactory, and air pollution poses little or no risk." 
+      color: "bg-green-500",
+      textColor: "text-green-600 dark:text-green-400",
+      bgColor: "bg-green-100 dark:bg-green-900/30",
+      progressColor: "bg-green-500",
+      description: "Air quality is satisfactory, and air pollution poses little or no risk.", 
+      emoji: "😊" 
     },
     "2": { 
       title: "Moderate", 
       color: "bg-yellow-500", 
-      description: "Air quality is acceptable. However, there may be a risk for some people, particularly those who are unusually sensitive to air pollution." 
+      textColor: "text-yellow-600 dark:text-yellow-400",
+      bgColor: "bg-yellow-100 dark:bg-yellow-900/30",
+      progressColor: "bg-yellow-500",
+      description: "Air quality is acceptable. However, there may be a risk for some people, particularly those who are unusually sensitive to air pollution.", 
+      emoji: "🙂" 
     },
     "3": { 
       title: "Unhealthy for Sensitive Groups", 
       color: "bg-orange-500", 
-      description: "Members of sensitive groups may experience health effects. The general public is less likely to be affected."
+      textColor: "text-orange-600 dark:text-orange-400",
+      bgColor: "bg-orange-100 dark:bg-orange-900/30",
+      progressColor: "bg-orange-500",
+      description: "Members of sensitive groups may experience health effects. The general public is less likely to be affected.",
+      emoji: "😐" 
     },
     "4": { 
       title: "Unhealthy", 
       color: "bg-red-500", 
-      description: "Some members of the general public may experience health effects; members of sensitive groups may experience more serious health effects."
+      textColor: "text-red-600 dark:text-red-400",
+      bgColor: "bg-red-100 dark:bg-red-900/30", 
+      progressColor: "bg-red-500",
+      description: "Some members of the general public may experience health effects; members of sensitive groups may experience more serious health effects.",
+      emoji: "😷" 
     },
     "5": { 
       title: "Very Unhealthy", 
       color: "bg-purple-500", 
-      description: "Health alert: The risk of health effects is increased for everyone."
+      textColor: "text-purple-600 dark:text-purple-400",
+      bgColor: "bg-purple-100 dark:bg-purple-900/30",
+      progressColor: "bg-purple-500",
+      description: "Health alert: The risk of health effects is increased for everyone.",
+      emoji: "⚠️" 
     }
   };
 
@@ -101,12 +174,23 @@ export default function AirQuality() {
     return "5";
   };
 
+  // Helper to get the correct progress color based on value
+  const getProgressColor = (value: number, max: number) => {
+    const percentage = (value / max) * 100;
+    if (percentage <= 20) return airQualityLevels["1"].progressColor;
+    if (percentage <= 40) return airQualityLevels["2"].progressColor;
+    if (percentage <= 60) return airQualityLevels["3"].progressColor;
+    if (percentage <= 80) return airQualityLevels["4"].progressColor;
+    return airQualityLevels["5"].progressColor;
+  };
+
   if (isLoading) return <LoadingScreen />;
   
   if (error) return <ErrorDisplay message={(error as Error).message} />;
 
   const currentAQI = airQualityData?.current.european_aqi || 0;
   const aqiLevel = getAirQualityLevel(currentAQI);
+  const aqiInfo = airQualityLevels[aqiLevel];
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800 transition-all duration-500">
@@ -138,14 +222,24 @@ export default function AirQuality() {
                   </CardDescription>
                 </div>
                 <Badge 
-                  className={`text-white px-3 py-1.5 ${airQualityLevels[aqiLevel]?.color}`}
+                  className={`text-white px-3 py-1.5 ${aqiInfo.color}`}
                 >
-                  {airQualityLevels[aqiLevel]?.title}
+                  {aqiInfo.title}
                 </Badge>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col items-center space-y-6">
-                  <div className="relative w-60 h-60 flex items-center justify-center">
+                  <motion.div 
+                    className="relative w-60 h-60 flex items-center justify-center"
+                    animate={{ rotate: [0, 5, 0, -5, 0] }}
+                    transition={{ 
+                      duration: 4, 
+                      repeat: Infinity, 
+                      ease: "easeInOut",
+                      repeatType: "mirror"
+                    }}
+                  >
+                    <div className={`absolute inset-0 rounded-full ${aqiInfo.bgColor} opacity-20`}></div>
                     <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
                       <circle
                         cx="50"
@@ -156,27 +250,35 @@ export default function AirQuality() {
                         strokeWidth="10"
                         strokeOpacity="0.1"
                       />
-                      <circle
+                      <motion.circle
                         cx="50"
                         cy="50"
                         r="45"
                         fill="none"
-                        stroke={airQualityLevels[aqiLevel]?.color?.replace('bg-', 'stroke-').replace('-500', '-500')}
+                        stroke={aqiInfo.color.replace('bg-', 'stroke-').replace('-500', '-500')}
                         strokeWidth="10"
                         strokeLinecap="round"
                         strokeDasharray={`${Math.min(280, (currentAQI / 300) * 280)} 300`}
-                        className="transition-all duration-1000 ease-out"
+                        initial={{ strokeDashoffset: 300 }}
+                        animate={{ strokeDashoffset: 0 }}
+                        transition={{ duration: 1.5, ease: "easeOut" }}
                       />
                     </svg>
                     <div className="absolute flex flex-col items-center">
-                      <span className="text-5xl font-bold">{currentAQI}</span>
+                      <span className={`text-6xl font-bold ${aqiInfo.textColor}`}>{currentAQI}</span>
                       <span className="text-sm text-muted-foreground">AQI</span>
+                      <span className="text-2xl mt-1">{aqiInfo.emoji}</span>
                     </div>
-                  </div>
+                  </motion.div>
                   
-                  <div className="w-full p-4 rounded-lg bg-white/30 dark:bg-slate-700/30 backdrop-blur-sm">
-                    <p className="text-center mb-3">{airQualityLevels[aqiLevel]?.description}</p>
-                  </div>
+                  <motion.div 
+                    className={`w-full p-4 rounded-lg ${aqiInfo.bgColor} backdrop-blur-sm`}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                  >
+                    <p className={`text-center mb-3 ${aqiInfo.textColor} font-medium`}>{aqiInfo.description}</p>
+                  </motion.div>
                 </div>
               </CardContent>
             </Card>
@@ -208,7 +310,11 @@ export default function AirQuality() {
                         <span className="font-medium">PM2.5</span>
                         <span>{airQualityData.current.pm2_5} μg/m³</span>
                       </div>
-                      <Progress value={(airQualityData.current.pm2_5 / 75) * 100} className="h-2" />
+                      <Progress 
+                        value={(airQualityData.current.pm2_5 / 75) * 100} 
+                        className="h-2"
+                        indicatorClassName={getProgressColor(airQualityData.current.pm2_5, 75)}
+                      />
                     </div>
 
                     <div className="space-y-2">
@@ -216,7 +322,11 @@ export default function AirQuality() {
                         <span className="font-medium">PM10</span>
                         <span>{airQualityData.current.pm10} μg/m³</span>
                       </div>
-                      <Progress value={(airQualityData.current.pm10 / 150) * 100} className="h-2" />
+                      <Progress 
+                        value={(airQualityData.current.pm10 / 150) * 100} 
+                        className="h-2"
+                        indicatorClassName={getProgressColor(airQualityData.current.pm10, 150)}
+                      />
                     </div>
 
                     <div className="space-y-2">
@@ -224,7 +334,11 @@ export default function AirQuality() {
                         <span className="font-medium">NO₂</span>
                         <span>{airQualityData.current.nitrogen_dioxide} μg/m³</span>
                       </div>
-                      <Progress value={(airQualityData.current.nitrogen_dioxide / 200) * 100} className="h-2" />
+                      <Progress 
+                        value={(airQualityData.current.nitrogen_dioxide / 200) * 100} 
+                        className="h-2"
+                        indicatorClassName={getProgressColor(airQualityData.current.nitrogen_dioxide, 200)}
+                      />
                     </div>
 
                     <div className="space-y-2">
@@ -232,7 +346,11 @@ export default function AirQuality() {
                         <span className="font-medium">O₃</span>
                         <span>{airQualityData.current.ozone} μg/m³</span>
                       </div>
-                      <Progress value={(airQualityData.current.ozone / 180) * 100} className="h-2" />
+                      <Progress 
+                        value={(airQualityData.current.ozone / 180) * 100} 
+                        className="h-2"
+                        indicatorClassName={getProgressColor(airQualityData.current.ozone, 180)}
+                      />
                     </div>
 
                     <div className="space-y-2">
@@ -240,7 +358,11 @@ export default function AirQuality() {
                         <span className="font-medium">SO₂</span>
                         <span>{airQualityData.current.sulphur_dioxide} μg/m³</span>
                       </div>
-                      <Progress value={(airQualityData.current.sulphur_dioxide / 350) * 100} className="h-2" />
+                      <Progress 
+                        value={(airQualityData.current.sulphur_dioxide / 350) * 100} 
+                        className="h-2"
+                        indicatorClassName={getProgressColor(airQualityData.current.sulphur_dioxide, 350)}
+                      />
                     </div>
                   </>
                 )}
@@ -293,7 +415,7 @@ export default function AirQuality() {
         </motion.main>
         
         <footer className="mt-8 pt-4 text-sm text-center text-white/70 dark:text-slate-400">
-          <p>Developed by: Faiz Nasir | Owned by FGCompany Original</p>
+          <p>Developed by Faiz Nasir</p>
         </footer>
       </div>
     </div>

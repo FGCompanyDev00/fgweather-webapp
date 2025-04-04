@@ -1,22 +1,26 @@
-
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, X, MapPin, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { GeocodingResult, searchLocation } from '@/lib/utils/weather-api';
 import { useToast } from "@/hooks/use-toast";
+import { useLoading } from '@/App';
+import debounce from 'lodash.debounce';
 
 interface LocationSearchProps {
-  onSelectLocation: (location: GeocodingResult) => void;
-  onUseCurrentLocation: () => void;
-  isLoadingLocation: boolean;
+  onSelectLocation?: (location: GeocodingResult) => void;
+  onUseCurrentLocation?: () => void;
+  isLoadingLocation?: boolean;
+  // For AirQuality page
+  onLocationChange?: (location: { lat: number; lon: number; name: string }) => void;
 }
 
 export function LocationSearch({ 
   onSelectLocation, 
   onUseCurrentLocation,
-  isLoadingLocation 
+  isLoadingLocation = false,
+  onLocationChange
 }: LocationSearchProps) {
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<GeocodingResult[]>([]);
@@ -24,36 +28,72 @@ export function LocationSearch({
   const [showResults, setShowResults] = useState<boolean>(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { setIsLoading, setLoadingMessage } = useLoading();
   
-  const handleSearch = async () => {
-    if (!query.trim()) return;
-    
-    setIsSearching(true);
-    try {
-      const searchResults = await searchLocation(query);
-      setResults(searchResults);
-    } catch (error) {
-      toast({
-        title: "Search Error",
-        description: "Failed to find location. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSearching(false);
-      setShowResults(true);
+  // Use debounce for search to improve performance
+  const debouncedSearch = useCallback(
+    debounce(async (searchQuery: string) => {
+      if (!searchQuery.trim()) {
+        setResults([]);
+        setShowResults(false);
+        return;
+      }
+      
+      setIsSearching(true);
+      try {
+        const searchResults = await searchLocation(searchQuery);
+        setResults(searchResults);
+        setShowResults(true);
+      } catch (error) {
+        toast({
+          title: "Search Error",
+          description: "Failed to find location. Please try again.",
+          variant: "destructive",
+        });
+        setResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500),
+    [toast]
+  );
+
+  // Update search when query changes
+  useEffect(() => {
+    if (query.trim().length >= 2) {
+      debouncedSearch(query);
+    } else {
+      setResults([]);
+      setShowResults(false);
     }
-  };
+    
+    // Cleanup the debounced function on unmount
+    return () => {
+      debouncedSearch.cancel();
+    };
+  }, [query, debouncedSearch]);
 
   const handleSelectLocation = (location: GeocodingResult) => {
-    onSelectLocation(location);
+    if (onSelectLocation) {
+      onSelectLocation(location);
+    }
+    
+    if (onLocationChange) {
+      onLocationChange({
+        lat: location.latitude,
+        lon: location.longitude,
+        name: location.name
+      });
+    }
+    
     setQuery('');
     setResults([]);
     setShowResults(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleSearch();
+    if (e.key === 'Enter' && query.trim()) {
+      debouncedSearch.flush(); // Immediately execute the debounced search
     }
   };
 
@@ -61,6 +101,15 @@ export function LocationSearch({
     setQuery('');
     setResults([]);
     setShowResults(false);
+  };
+  
+  const handleCurrentLocation = async () => {
+    setIsLoading(true);
+    setLoadingMessage("Getting your location...");
+    
+    if (onUseCurrentLocation) {
+      onUseCurrentLocation();
+    }
   };
 
   // Close results when clicking outside
@@ -78,9 +127,9 @@ export function LocationSearch({
   }, []);
   
   return (
-    <div ref={searchRef} className="relative w-full max-w-md">
-      <div className="flex items-center w-full">
-        <div className="relative flex-grow">
+    <div ref={searchRef} className="relative w-full max-w-md mx-auto">
+      <div className="flex flex-col sm:flex-row items-center w-full gap-2">
+        <div className="relative flex-grow w-full">
           <Input
             className="pl-10 pr-10 py-6 rounded-full focus:ring-2 focus:ring-primary bg-white dark:bg-slate-800"
             placeholder="Search for a city..."
@@ -101,32 +150,34 @@ export function LocationSearch({
           )}
         </div>
         
-        <Button 
-          variant="outline"
-          size="icon"
-          className="ml-2 rounded-full aspect-square h-10"
-          onClick={onUseCurrentLocation}
-          disabled={isLoadingLocation}
-        >
-          {isLoadingLocation ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <MapPin className="h-5 w-5" />
-          )}
-        </Button>
-        
-        <Button 
-          className="ml-2 rounded-full px-4 py-6"
-          onClick={handleSearch}
-          disabled={!query.trim() || isSearching}
-        >
-          {isSearching ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Search className="h-4 w-4 mr-2" />
-          )}
-          Search
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+          <Button 
+            variant="outline"
+            size="icon"
+            className="rounded-full aspect-square h-10 flex-shrink-0"
+            onClick={handleCurrentLocation}
+            disabled={isLoadingLocation}
+          >
+            {isLoadingLocation ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <MapPin className="h-5 w-5" />
+            )}
+          </Button>
+          
+          <Button 
+            className="rounded-full px-4 py-6 flex-1 sm:flex-initial"
+            onClick={() => debouncedSearch.flush()}
+            disabled={!query.trim() || isSearching}
+          >
+            {isSearching ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4 mr-2" />
+            )}
+            Search
+          </Button>
+        </div>
       </div>
       
       {showResults && results.length > 0 && (
@@ -135,7 +186,7 @@ export function LocationSearch({
             <div>
               {results.map((result, index) => (
                 <button
-                  key={`${result.name}-${index}`}
+                  key={`${result.name}-${result.latitude}-${result.longitude}`}
                   className="w-full text-left px-4 py-3 hover:bg-muted transition-colors flex items-start"
                   onClick={() => handleSelectLocation(result)}
                 >

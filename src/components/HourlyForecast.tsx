@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -16,9 +15,9 @@ export function HourlyForecast({ weatherData, unit }: HourlyForecastProps) {
   const hourIndices = getNextNHours(hourly, 24);
 
   return (
-    <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg">
+    <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg h-full">
       <CardHeader className="pb-2">
-        <CardTitle>Hourly Forecast</CardTitle>
+        <CardTitle className="text-xl">Hourly Forecast</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <ScrollArea className="w-full whitespace-nowrap pb-4">
@@ -28,6 +27,7 @@ export function HourlyForecast({ weatherData, unit }: HourlyForecastProps) {
               const temp = hourly.temperature[index];
               const isDay = hourly.isDay[index];
               const weatherCode = hourly.weatherCode[index];
+              const precipProb = hourly.precipitationProbability?.[index] || 0;
               const condition = mapWeatherCode(weatherCode, isDay);
               const formattedTime = formatDate(time, 'time');
               const now = new Date();
@@ -37,17 +37,22 @@ export function HourlyForecast({ weatherData, unit }: HourlyForecastProps) {
               return (
                 <div 
                   key={time} 
-                  className={`flex flex-col items-center px-3 py-2 space-y-1 rounded-lg mr-1 ${
-                    isNow ? 'bg-primary text-primary-foreground' : ''
+                  className={`flex flex-col items-center px-3 py-2 space-y-1 rounded-lg mr-2 min-w-[70px] ${
+                    isNow ? 'bg-primary/90 text-primary-foreground' : 'hover:bg-white/20 dark:hover:bg-slate-700/30'
                   }`}
                 >
-                  <span className="text-sm font-medium">
+                  <span className="text-xs sm:text-sm font-medium">
                     {isNow ? 'Now' : formattedTime}
                   </span>
-                  <WeatherIcon condition={condition} className="h-8 w-8 my-2" />
-                  <span className="font-medium">
+                  <WeatherIcon condition={condition} className="h-8 w-8 my-1 sm:my-2" />
+                  <span className="font-medium text-sm sm:text-base">
                     {formatTemperature(temp, unit)}
                   </span>
+                  {precipProb > 0 && (
+                    <span className="text-xs text-blue-500 dark:text-blue-400">
+                      {precipProb}% 💧
+                    </span>
+                  )}
                 </div>
               );
             })}
