@@ -70,46 +70,60 @@ export function WeatherMap({ mapType, unit, location }: WeatherMapProps) {
       leafletMap.current.removeLayer(tileLayer.current);
     }
     
-    // Different weather tile layers based on mapType
-    // Note: Using free OpenWeatherMap tile layers which require API key
-    // For demonstration, you can replace YOUR_API_KEY with a real key
-    const openWeatherMapKey = "YOUR_API_KEY"; // In a real app, you'd use environment variables
-    
-    let weatherTileUrl = '';
-    switch (mapType) {
-      case 'temp':
-        weatherTileUrl = `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${openWeatherMapKey}`;
-        break;
-      case 'precipitation':
-        weatherTileUrl = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${openWeatherMapKey}`;
-        break;
-      case 'clouds':
-        weatherTileUrl = `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${openWeatherMapKey}`;
-        break;
-      case 'wind':
-        weatherTileUrl = `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${openWeatherMapKey}`;
-        break;
-      default:
-        weatherTileUrl = `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${openWeatherMapKey}`;
-    }
-    
-    // For demo purposes, since we don't have a real API key, we'll use a basic map layer
-    // In a production app, you would use the weatherTileUrl with your API key
+    // For demo purposes, we'll use a basic map layer and overlay data visualization
     tileLayer.current = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(leafletMap.current);
     
     // Add colored circles to represent weather data on the map
     const addMockWeatherData = () => {
-      // Mock data points to simulate weather data
-      const mockPoints = [
-        { lat: location.lat + 2, lon: location.lon + 2, value: 25 }, // warm
-        { lat: location.lat - 2, lon: location.lon - 2, value: 5 }, // cold
-        { lat: location.lat + 1, lon: location.lon - 1, value: 15 }, // mild
-        { lat: location.lat - 1, lon: location.lon + 1, value: 30 }, // hot
-      ];
+      // Clear any existing weather data circles
+      leafletMap.current?.eachLayer((layer) => {
+        if (layer instanceof L.Circle) {
+          leafletMap.current?.removeLayer(layer);
+        }
+      });
       
-      mockPoints.forEach(point => {
+      // Generate grid of points around the location
+      const gridPoints = [];
+      const gridSize = 5;
+      const gridSpacing = 0.5; // in degrees
+      
+      for (let i = -gridSize; i <= gridSize; i++) {
+        for (let j = -gridSize; j <= gridSize; j++) {
+          // Generate realistic mock data values based on mapType and location
+          let value;
+          switch (mapType) {
+            case 'temp':
+              // Temperature decreases with latitude and random variations
+              value = 20 - Math.abs(location.lat / 4) + Math.random() * 15 - 5;
+              break;
+            case 'precipitation':
+              // Random precipitation with higher chance in certain regions
+              value = Math.random() * 12 * (Math.abs(Math.sin(location.lat / 10)) + 0.5);
+              break;
+            case 'clouds':
+              // Cloud coverage percent
+              value = Math.random() * 100;
+              break;
+            case 'wind':
+              // Wind speed in km/h
+              value = 5 + Math.random() * 35;
+              break;
+            default:
+              value = 20;
+          }
+          
+          gridPoints.push({
+            lat: location.lat + i * gridSpacing,
+            lon: location.lon + j * gridSpacing,
+            value: value
+          });
+        }
+      }
+      
+      // Add circles for each point
+      gridPoints.forEach(point => {
         let color = 'green';
         let radius = 30000;
         
@@ -126,6 +140,18 @@ export function WeatherMap({ mapType, unit, location }: WeatherMapProps) {
           else if (point.value < 5) color = 'rgba(70, 130, 180, 0.5)'; // steel blue
           else if (point.value < 10) color = 'rgba(0, 0, 255, 0.5)'; // blue
           else color = 'rgba(0, 0, 139, 0.5)'; // dark blue
+        }
+        else if (mapType === 'clouds') {
+          if (point.value < 10) color = 'rgba(135, 206, 250, 0.3)';  // clear sky
+          else if (point.value < 50) color = 'rgba(192, 192, 192, 0.5)'; // partly cloudy
+          else if (point.value < 90) color = 'rgba(128, 128, 128, 0.5)'; // mostly cloudy
+          else color = 'rgba(90, 90, 90, 0.5)'; // overcast
+        }
+        else if (mapType === 'wind') {
+          if (point.value < 5) color = 'rgba(144, 238, 144, 0.5)';  // calm
+          else if (point.value < 15) color = 'rgba(50, 205, 50, 0.5)'; // light
+          else if (point.value < 30) color = 'rgba(255, 215, 0, 0.5)'; // moderate
+          else color = 'rgba(255, 0, 0, 0.5)'; // strong
         }
         
         L.circle([point.lat, point.lon], {

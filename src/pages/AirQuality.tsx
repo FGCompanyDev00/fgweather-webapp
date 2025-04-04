@@ -29,6 +29,7 @@ interface AirQualityLevels {
 
 export default function AirQuality() {
   const [location, setLocation] = useState({ lat: 51.5074, lon: -0.1278, name: "London" }); // Default to London
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   
   const { data: airQualityData, isLoading, error, refetch } = useQuery({
     queryKey: ['airQuality', location.lat, location.lon],
@@ -39,15 +40,17 @@ export default function AirQuality() {
 
   useEffect(() => {
     if (navigator.geolocation) {
+      setIsLoadingLocation(true);
       navigator.geolocation.getCurrentPosition((position) => {
-        setLocation(prev => ({ 
-          ...prev, 
+        setLocation({ 
           lat: position.coords.latitude, 
           lon: position.coords.longitude,
           name: "Your Location" 
-        }));
+        });
+        setIsLoadingLocation(false);
       }, (err) => {
         console.error("Geolocation error:", err);
+        setIsLoadingLocation(false);
         // Keep default location if geolocation fails
       });
     }
@@ -56,6 +59,30 @@ export default function AirQuality() {
   const handleLocationChange = (newLocation: { lat: number; lon: number; name: string }) => {
     setLocation(newLocation);
     toast.success(`Location updated to ${newLocation.name}`);
+  };
+  
+  const handleUseCurrentLocation = () => {
+    if (navigator.geolocation) {
+      setIsLoadingLocation(true);
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            name: "Your Location"
+          });
+          setIsLoadingLocation(false);
+          toast.success("Using your current location");
+        },
+        (error) => {
+          console.error("Geolocation error:", error);
+          toast.error("Could not get your location");
+          setIsLoadingLocation(false);
+        }
+      );
+    } else {
+      toast.error("Geolocation is not supported by your browser");
+    }
   };
   
   const pageVariants = {
@@ -94,10 +121,10 @@ export default function AirQuality() {
   };
 
   const getAirQualityLevel = (aqi: number) => {
-    if (aqi <= 50) return "1";
-    if (aqi <= 100) return "2";
-    if (aqi <= 150) return "3";
-    if (aqi <= 200) return "4";
+    if (aqi <= 20) return "1";
+    if (aqi <= 40) return "2";
+    if (aqi <= 60) return "3";
+    if (aqi <= 80) return "4";
     return "5";
   };
 
@@ -116,7 +143,11 @@ export default function AirQuality() {
             <h1 className="text-2xl md:text-3xl font-bold gradient-text">FGWeather</h1>
           </div>
           <Navigation />
-          <LocationSearch onLocationChange={handleLocationChange} />
+          <LocationSearch 
+            onLocationChange={handleLocationChange}
+            onUseCurrentLocation={handleUseCurrentLocation}
+            isLoadingLocation={isLoadingLocation}
+          />
         </header>
         
         <motion.main
@@ -164,7 +195,7 @@ export default function AirQuality() {
                         stroke={airQualityLevels[aqiLevel]?.color?.replace('bg-', 'stroke-').replace('-500', '-500')}
                         strokeWidth="10"
                         strokeLinecap="round"
-                        strokeDasharray={`${Math.min(280, (currentAQI / 300) * 280)} 300`}
+                        strokeDasharray={`${Math.min(280, (currentAQI / 100) * 280)} 300`}
                         className="transition-all duration-1000 ease-out"
                       />
                     </svg>
@@ -262,7 +293,7 @@ export default function AirQuality() {
                   <Wind className="h-8 w-8 text-blue-500" />
                   <h3 className="font-medium">Ventilation</h3>
                   <p className="text-sm text-muted-foreground">
-                    {currentAQI < 50 
+                    {currentAQI < 40 
                       ? "It's a good time to open windows and ventilate." 
                       : "Keep windows closed to avoid pollutants entering your home."}
                   </p>
@@ -272,7 +303,7 @@ export default function AirQuality() {
                   <Droplets className="h-8 w-8 text-blue-500" />
                   <h3 className="font-medium">Outdoor Activities</h3>
                   <p className="text-sm text-muted-foreground">
-                    {currentAQI < 100 
+                    {currentAQI < 60 
                       ? "Safe for most outdoor activities." 
                       : "Consider limiting prolonged outdoor exertion."}
                   </p>
@@ -282,7 +313,7 @@ export default function AirQuality() {
                   <Gauge className="h-8 w-8 text-blue-500" />
                   <h3 className="font-medium">Sensitive Groups</h3>
                   <p className="text-sm text-muted-foreground">
-                    {currentAQI < 50 
+                    {currentAQI < 40 
                       ? "No special precautions needed." 
                       : "Children, elderly and those with respiratory issues should take precautions."}
                   </p>
