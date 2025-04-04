@@ -8,6 +8,8 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    // Enable history API fallback for proper handling of SPA routes
+    historyApiFallback: true,
   },
   plugins: [
     react(),
@@ -19,4 +21,10 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    outDir: "dist",
+    // Generate the service worker after the build
+    emptyOutDir: true,
+    sourcemap: mode === "development"
+  }
 }));

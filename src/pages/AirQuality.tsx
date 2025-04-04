@@ -8,7 +8,8 @@ import {
   AlertTriangle,
   Gauge,
   Info,
-  MapPin
+  MapPin,
+  Loader2
 } from "lucide-react";
 import { Navigation } from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -48,6 +49,7 @@ export default function AirQuality() {
     isCurrentLocation: false
   }); // Default to Kuala Lumpur
   
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const { setIsLoading, setLoadingMessage } = useLoading();
   
   const { data: airQualityData, isLoading, error, refetch } = useQuery({
@@ -82,10 +84,11 @@ export default function AirQuality() {
     }
   }, []);
 
+  // Detect user location in the background
   useEffect(() => {
-    if (navigator.geolocation) {
-      setIsLoading(true);
-      setLoadingMessage("Detecting your location...");
+    // Only try to detect location if we're not using a saved one
+    if (!location.isCurrentLocation && navigator.geolocation) {
+      setIsDetectingLocation(true);
       
       navigator.geolocation.getCurrentPosition(async (position) => {
         try {
@@ -94,12 +97,37 @@ export default function AirQuality() {
             `https://geocoding-api.open-meteo.com/v1/search?latitude=${position.coords.latitude}&longitude=${position.coords.longitude}&count=1&language=en&format=json`
           );
           
+          if (!response.ok) {
+            throw new Error('Failed to fetch location name');
+          }
+          
           const data = await response.json();
-          const locationName = data.results?.[0]?.name || "Your Location";
+          let locationName;
+          
+          if (data.results && data.results.length > 0) {
+            // Use the actual name, with city/town, state/district if available
+            locationName = data.results[0].name;
+            
+            if (data.results[0].admin3) {
+              locationName = `${locationName}, ${data.results[0].admin3}`;
+            } else if (data.results[0].admin2) {
+              locationName = `${locationName}, ${data.results[0].admin2}`;
+            } else if (data.results[0].admin1) {
+              locationName = `${locationName}, ${data.results[0].admin1}`;
+            }
+          } else {
+            // Fallback to coordinates if no name is found
+            locationName = `Location (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`;
+          }
           
           // Save to localStorage that this is the current location
           if (localStorage.getItem('fg-weather-remember-location') === 'true') {
             localStorage.setItem('fg-weather-is-current-location', 'true');
+            localStorage.setItem('fg-weather-coordinates', JSON.stringify({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude
+            }));
+            localStorage.setItem('fg-weather-location-name', locationName);
           }
           
           setLocation({ 
@@ -112,19 +140,32 @@ export default function AirQuality() {
           toast.success(`Location detected: ${locationName}`);
         } catch (err) {
           console.error("Geocoding error:", err);
+          // Use coordinates as fallback location name
+          const fallbackName = `Location (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`;
+          
           setLocation({
             lat: position.coords.latitude,
             lon: position.coords.longitude,
-            name: "Your Location",
+            name: fallbackName,
             isCurrentLocation: true
           });
+          
+          // Also save this to localStorage
+          if (localStorage.getItem('fg-weather-remember-location') === 'true') {
+            localStorage.setItem('fg-weather-location-name', fallbackName);
+          }
         } finally {
-          setIsLoading(false);
+          setIsDetectingLocation(false);
         }
       }, (err) => {
         console.error("Geolocation error:", err);
-        setIsLoading(false);
+        setIsDetectingLocation(false);
         // Keep default location if geolocation fails
+        toast({
+          title: "Location detection failed",
+          description: "Using default location (Kuala Lumpur).",
+          variant: "destructive",
+        });
       });
     }
   }, []);
@@ -253,14 +294,27 @@ export default function AirQuality() {
                 <div>
                   <CardTitle className="text-2xl">Air Quality Index</CardTitle>
                   <CardDescription className="flex items-center">
-                    {location.name}
-                    {location.isCurrentLocation && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <MapPin className="ml-1 h-4 w-4 text-blue-500" />
-                        </TooltipTrigger>
-                        <TooltipContent>Your current location</TooltipContent>
-                      </Tooltip>
+                    {isDetectingLocation ? (
+                      <div className="flex items-center">
+                        <span>Detecting location</span>
+                        <Loader2 className="ml-2 h-3 w-3 animate-spin" />
+                      </div>
+                    ) : (
+                      <>
+                        {location.name}
+                        {location.isCurrentLocation && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <MapPin className="ml-1 h-4 w-4 text-blue-500" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Your current location</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </>
                     )}
                     <span className="mx-1">-</span>
                     {new Date().toLocaleDateString()}

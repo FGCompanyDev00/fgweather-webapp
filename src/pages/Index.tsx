@@ -14,7 +14,7 @@ import { Navigation } from '@/components/Navigation';
 import { AnimatedBackground } from '@/components/AnimatedBackground';
 import { useToast } from "@/hooks/use-toast";
 import { useLoading } from '@/App';
-import { MapPin } from 'lucide-react';
+import { MapPin, Loader2 } from 'lucide-react';
 import { 
   Coordinates, 
   GeocodingResult, 
@@ -71,6 +71,8 @@ const Index = () => {
   const [isCurrentLocation, setIsCurrentLocation] = useState<boolean>(() => 
     localStorage.getItem('fg-weather-is-current-location') === 'true'
   );
+
+  const [isDetectingLocation, setIsDetectingLocation] = useState<boolean>(false);
   
   const [unit, setUnit] = useState<WeatherUnit>(() => {
     // Initialize from localStorage or default to celsius
@@ -129,8 +131,7 @@ const Index = () => {
   // Get user's current location on initial load
   useEffect(() => {
     if (!coordinates) {
-      setIsLoading(true);
-      setLoadingMessage("Detecting your location...");
+      setIsDetectingLocation(true);
       
       const fetchUserLocation = async () => {
         try {
@@ -142,12 +143,39 @@ const Index = () => {
               `https://geocoding-api.open-meteo.com/v1/search?latitude=${coords.latitude}&longitude=${coords.longitude}&count=1&language=en&format=json`
             );
             
+            if (!response.ok) {
+              throw new Error('Failed to fetch location name');
+            }
+            
             const data = await response.json();
-            const locationName = data.results?.[0]?.name || "Current Location";
+            let locationName;
+            
+            if (data.results && data.results.length > 0) {
+              // Use the actual name, with city/town, state/district if available
+              locationName = data.results[0].name;
+              
+              if (data.results[0].admin3) {
+                locationName = `${locationName}, ${data.results[0].admin3}`;
+              } else if (data.results[0].admin2) {
+                locationName = `${locationName}, ${data.results[0].admin2}`;
+              } else if (data.results[0].admin1) {
+                locationName = `${locationName}, ${data.results[0].admin1}`;
+              }
+            } else {
+              // Fallback to coordinates if no name is found
+              locationName = `Location (${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)})`;
+            }
             
             setCoordinates(coords);
             setLocationName(locationName);
             setIsCurrentLocation(true);
+            
+            // Save to localStorage
+            if (localStorage.getItem('fg-weather-remember-location') === 'true') {
+              localStorage.setItem('fg-weather-coordinates', JSON.stringify(coords));
+              localStorage.setItem('fg-weather-location-name', locationName);
+              localStorage.setItem('fg-weather-is-current-location', 'true');
+            }
             
             toast({
               title: "Location detected",
@@ -155,9 +183,18 @@ const Index = () => {
             });
           } catch (geocodeError) {
             console.error("Geocoding error:", geocodeError);
+            
+            // Fallback to coordinates as location name
+            const fallbackName = `Location (${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)})`;
+            
             setCoordinates(coords);
-            setLocationName("Current Location");
+            setLocationName(fallbackName);
             setIsCurrentLocation(true);
+            
+            // Save to localStorage
+            if (localStorage.getItem('fg-weather-remember-location') === 'true') {
+              localStorage.setItem('fg-weather-location-name', fallbackName);
+            }
             
             toast({
               title: "Location detected",
@@ -172,7 +209,7 @@ const Index = () => {
             variant: "destructive",
           });
         } finally {
-          setIsLoading(false);
+          setIsDetectingLocation(false);
         }
       };
 
@@ -192,6 +229,8 @@ const Index = () => {
 
   // Handle current location button
   const handleUseCurrentLocation = async () => {
+    setIsDetectingLocation(true);
+    
     try {
       const coords = await getCurrentLocation();
       
@@ -201,8 +240,28 @@ const Index = () => {
           `https://geocoding-api.open-meteo.com/v1/search?latitude=${coords.latitude}&longitude=${coords.longitude}&count=1&language=en&format=json`
         );
         
+        if (!response.ok) {
+          throw new Error('Failed to fetch location name');
+        }
+        
         const data = await response.json();
-        const locationName = data.results?.[0]?.name || "Current Location";
+        let locationName;
+        
+        if (data.results && data.results.length > 0) {
+          // Use the actual name, with city/town, state/district if available
+          locationName = data.results[0].name;
+          
+          if (data.results[0].admin3) {
+            locationName = `${locationName}, ${data.results[0].admin3}`;
+          } else if (data.results[0].admin2) {
+            locationName = `${locationName}, ${data.results[0].admin2}`;
+          } else if (data.results[0].admin1) {
+            locationName = `${locationName}, ${data.results[0].admin1}`;
+          }
+        } else {
+          // Fallback to coordinates if no name is found
+          locationName = `Location (${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)})`;
+        }
         
         setCoordinates(coords);
         setLocationName(locationName);
@@ -214,8 +273,12 @@ const Index = () => {
         });
       } catch (geocodeError) {
         console.error("Geocoding error:", geocodeError);
+        
+        // Fallback to coordinates as location name
+        const fallbackName = `Location (${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)})`;
+        
         setCoordinates(coords);
-        setLocationName("Current Location");
+        setLocationName(fallbackName);
         setIsCurrentLocation(true);
         
         toast({
@@ -230,7 +293,7 @@ const Index = () => {
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      setIsDetectingLocation(false);
     }
   };
 
@@ -300,7 +363,7 @@ const Index = () => {
             <LocationSearch 
               onSelectLocation={handleSelectLocation}
               onUseCurrentLocation={handleUseCurrentLocation}
-              isLoadingLocation={isLoading && !weatherData}
+              isLoadingLocation={isDetectingLocation || (isLoading && !weatherData)}
             />
           </header>
 

@@ -1,5 +1,5 @@
 // Service Worker for FGWeather App
-const CACHE_NAME = 'fgweather-v1.2.0';
+const CACHE_NAME = 'fgweather-v1.3.0';
 
 // Resources to cache
 const STATIC_RESOURCES = [
@@ -15,6 +15,14 @@ const STATIC_RESOURCES = [
   '/icons/icon-384x384.png',
   '/icons/icon-512x512.png',
   '/manifest.json'
+];
+
+// Client-side routes that should serve index.html
+const ROUTES = [
+  '/settings',
+  '/air-quality',
+  '/alerts',
+  '/about'
 ];
 
 // API endpoints to cache
@@ -60,6 +68,12 @@ const isApiRequest = (url) => {
   return API_URLS.some(apiUrl => url.startsWith(apiUrl));
 };
 
+// Helper function to check if a URL is a client-side route
+const isClientRoute = (url) => {
+  const urlObj = new URL(url);
+  return ROUTES.some(route => urlObj.pathname === route || urlObj.pathname.startsWith(`${route}/`));
+};
+
 // Helper function to determine if we should use network-first strategy
 const shouldUseNetworkFirst = (url) => {
   // For API requests and navigation requests, try network first
@@ -87,6 +101,20 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests or cross-origin requests except for our APIs
   if (event.request.method !== 'GET' || 
       (!url.startsWith(self.location.origin) && !isApiRequest(url))) {
+    return;
+  }
+  
+  // Handle client-side routes - return index.html
+  if (isClientRoute(url)) {
+    event.respondWith(
+      caches.match('/index.html')
+        .then(cachedResponse => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          return fetch('/index.html');
+        })
+    );
     return;
   }
   
