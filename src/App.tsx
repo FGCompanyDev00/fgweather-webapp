@@ -5,8 +5,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "@/lib/utils/theme-provider";
+import { AnimatePresence } from "framer-motion";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import WeatherMap from "./pages/WeatherMap";
+import AirQuality from "./pages/AirQuality";
+import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
@@ -17,10 +21,15 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <AnimatePresence mode="wait">
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/map" element={<WeatherMap />} />
+              <Route path="/air-quality" element={<AirQuality />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </AnimatePresence>
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
@@ -28,4 +37,3 @@ const App = () => (
 );
 
 export default App;
-

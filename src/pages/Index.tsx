@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UnitToggle } from '@/components/UnitToggle';
@@ -10,6 +11,7 @@ import { DailyForecast } from '@/components/DailyForecast';
 import { WeatherChart } from '@/components/WeatherChart';
 import { ErrorDisplay } from '@/components/ErrorDisplay';
 import { LoadingScreen } from '@/components/LoadingScreen';
+import { Navigation } from '@/components/Navigation';
 import { useToast } from "@/hooks/use-toast";
 import { 
   Coordinates, 
@@ -23,6 +25,25 @@ import {
   mapWeatherCode, 
   getWeatherGradient 
 } from '@/lib/utils/weather-utils';
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { y: 20, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: { type: "spring", stiffness: 300, damping: 24 }
+  }
+};
 
 const Index = () => {
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
@@ -132,6 +153,8 @@ const Index = () => {
             </div>
           </div>
           
+          <Navigation />
+          
           <LocationSearch 
             onSelectLocation={handleSelectLocation}
             onUseCurrentLocation={handleUseCurrentLocation}
@@ -139,7 +162,12 @@ const Index = () => {
           />
         </header>
 
-        <main className="space-y-6">
+        <motion.main 
+          className="space-y-6"
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
           {isLoading && !weatherData && (
             <LoadingScreen />
           )}
@@ -153,21 +181,29 @@ const Index = () => {
           
           {weatherData && (
             <>
-              <CurrentWeather 
-                weatherData={weatherData} 
-                locationName={locationName} 
-                unit={unit}
-              />
+              <motion.div variants={itemVariants}>
+                <CurrentWeather 
+                  weatherData={weatherData} 
+                  locationName={locationName} 
+                  unit={unit}
+                />
+              </motion.div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <HourlyForecast weatherData={weatherData} unit={unit} />
-                <DailyForecast weatherData={weatherData} unit={unit} />
+                <motion.div variants={itemVariants}>
+                  <HourlyForecast weatherData={weatherData} unit={unit} />
+                </motion.div>
+                <motion.div variants={itemVariants}>
+                  <DailyForecast weatherData={weatherData} unit={unit} />
+                </motion.div>
               </div>
               
-              <WeatherChart weatherData={weatherData} unit={unit} />
+              <motion.div variants={itemVariants}>
+                <WeatherChart weatherData={weatherData} unit={unit} />
+              </motion.div>
             </>
           )}
-        </main>
+        </motion.main>
         
         <footer className="mt-8 pt-4 text-sm text-center text-white/70 dark:text-slate-400">
           <p>Powered by Open-Meteo Weather API</p>
