@@ -190,7 +190,7 @@ export default function Settings() {
         </motion.main>
         
         <footer className="mt-8 pt-4 text-sm text-center text-white/70 dark:text-slate-400">
-          <p>Powered by Open-Meteo Weather API</p>
+          <p>Owned by FGCompany Original</p>
         </footer>
       </div>
     </div>
