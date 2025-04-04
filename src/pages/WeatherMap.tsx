@@ -170,7 +170,7 @@ export default function WeatherMapPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <div className="w-6 h-6 rounded-full bg-blue-700"></div>
-                      <span>Very Heavy (>10 mm)</span>
+                      <span>Very Heavy (&gt;10 mm)</span>
                     </div>
                   </>
                 )}
@@ -190,7 +190,7 @@ export default function WeatherMapPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <div className="w-6 h-6 rounded-full bg-gray-700"></div>
-                      <span>Overcast (>90%)</span>
+                      <span>Overcast (&gt;90%)</span>
                     </div>
                   </>
                 )}
@@ -210,7 +210,7 @@ export default function WeatherMapPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <div className="w-6 h-6 rounded-full bg-red-500"></div>
-                      <span>Strong (>30 km/h)</span>
+                      <span>Strong (&gt;30 km/h)</span>
                     </div>
                   </>
                 )}
