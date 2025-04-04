@@ -1,461 +1,186 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { Helmet } from "react-helmet-async";
+import { 
+  Moon, Sun, BellRing, BellOff, Trash2, 
+  RefreshCw, AlertTriangle, MapPin, Bell
+} from "lucide-react";
 import { Navigation } from "@/components/Navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { 
+  Card, CardContent, CardDescription, 
+  CardFooter, CardHeader, CardTitle 
+} from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { UnitToggle } from "@/components/UnitToggle";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Trash2, RefreshCw, Info, Bell } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Separator } from "@/components/ui/separator";
+import { useTheme } from "@/lib/utils/theme-provider";
+import { fetchWeatherByCoordinates } from "@/lib/utils/weather-api";
+import { formatTemperature } from "@/lib/utils/weather-utils";
 import { useLoading } from "@/App";
-import { 
-  Select, 
-  SelectTrigger, 
-  SelectValue, 
-  SelectContent, 
-  SelectItem 
-} from "@/components/ui/select";
-import { 
-  Loader2, 
-  BellRing,
-  BellOff,
-  AlertTriangle
-} from "lucide-react";
-import { WeatherUnit } from "@/lib/utils/weather-api";
-
-// Notification types
-interface WeatherAlertSettings {
-  enabled: boolean;
-  interval: number; // in minutes
-  lastAlertTime?: number;
-}
-
-// Service worker for app notifications
-let notificationOptions: NotificationOptions;
+import { LocationSearch } from "@/components/LocationSearch";
+import { useLocation, locationDataToComponentFormat } from "@/contexts/LocationContext";
+import { LocationData } from "@/lib/utils/location-utils";
 
 export default function Settings() {
-  const { toast } = useToast();
-  const { setIsLoading } = useLoading();
-  const [notificationSupported, setNotificationSupported] = useState(true);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
+  const { theme, setTheme } = useTheme();
+  const { location, isLoading: isLocationLoading, updateLocation } = useLocation();
+  const { setIsLoading, setLoadingMessage } = useLoading();
   
-  // Load settings from localStorage
-  const [unit, setUnit] = useState<WeatherUnit>(() => {
-    return localStorage.getItem('fg-weather-unit') as WeatherUnit || 'celsius';
-  });
-  
-  const [rememberLocation, setRememberLocation] = useState(() => {
-    return localStorage.getItem('fg-weather-remember-location') === 'true';
-  });
-  
-  const [autoRefresh, setAutoRefresh] = useState(() => {
-    return localStorage.getItem('fg-weather-auto-refresh') === 'true';
-  });
-  
-  const [weatherAlerts, setWeatherAlerts] = useState<WeatherAlertSettings>(() => {
-    const savedAlerts = localStorage.getItem('fg-weather-alerts');
-    if (savedAlerts) {
-      try {
-        return JSON.parse(savedAlerts);
-      } catch (e) {
-        return { enabled: false, interval: 60 };
-      }
-    }
-    return { enabled: false, interval: 60 };
-  });
-  
-  // Check notifications support and permission on mount
-  useEffect(() => {
-    // Check if the browser supports notifications
-    if (!("Notification" in window)) {
-      setNotificationSupported(false);
-      return;
-    }
-    
-    // Get current notification permission
-    setNotificationPermission(Notification.permission);
-    
-    // If already denied but alerts are enabled, disable them
-    if (Notification.permission === 'denied' && weatherAlerts.enabled) {
-      setWeatherAlerts(prev => ({ ...prev, enabled: false }));
-      toast({
-        title: "Weather alerts disabled",
-        description: "Notification permission was denied. Please enable notifications in your browser settings.",
-        variant: "destructive",
-      });
-    }
-  }, []);
-  
-  // Save user preferences
-  useEffect(() => {
-    localStorage.setItem('fg-weather-unit', unit);
-  }, [unit]);
-  
-  useEffect(() => {
-    localStorage.setItem('fg-weather-remember-location', rememberLocation.toString());
-    
-    // If remember location is turned off, clear stored location
-    if (!rememberLocation) {
-      localStorage.removeItem('fg-weather-coordinates');
-      localStorage.removeItem('fg-weather-location-name');
-    }
-  }, [rememberLocation]);
-  
-  useEffect(() => {
-    localStorage.setItem('fg-weather-auto-refresh', autoRefresh.toString());
-  }, [autoRefresh]);
-  
-  useEffect(() => {
-    localStorage.setItem('fg-weather-alerts', JSON.stringify(weatherAlerts));
-  }, [weatherAlerts]);
-  
-  // Setup weather alerts if enabled
-  useEffect(() => {
-    let alertInterval: number | undefined;
-    
-    const checkAndSendNotification = async () => {
-      // Skip if alerts are disabled or notification permission not granted
-      if (!weatherAlerts.enabled || Notification.permission !== 'granted') {
-        return;
-      }
-      
-      const lastCheck = weatherAlerts.lastAlertTime || 0;
-      const now = Date.now();
-      const intervalMs = weatherAlerts.interval * 60 * 1000;
-      
-      // Check if it's time for a new alert
-      if (now - lastCheck >= intervalMs) {
-        // Update the last alert time
-        setWeatherAlerts(prev => ({
-          ...prev,
-          lastAlertTime: now
-        }));
-        
-        // Get current location or use saved location
-        const coordinates = localStorage.getItem('fg-weather-coordinates');
-        const locationName = localStorage.getItem('fg-weather-location-name') || 'your location';
-        
-        if (coordinates) {
-          try {
-            // Fetch latest weather and send notification
-            const response = await fetch(
-              `https://api.open-meteo.com/v1/forecast?latitude=${JSON.parse(coordinates).latitude}&longitude=${JSON.parse(coordinates).longitude}&current=temperature_2m,weather_code,precipitation&timezone=auto`
-            );
-            
-            if (!response.ok) {
-              throw new Error('Failed to fetch weather data');
-            }
-            
-            const data = await response.json();
-            
-            // Create a more informative notification
-            let message = `Current temperature at ${locationName}: ${Math.round(data.current.temperature_2m)}°${unit === 'celsius' ? 'C' : 'F'}`;
-            
-            // Add precipitation info if available
-            if (data.current.precipitation > 0) {
-              message += ` | Precipitation: ${data.current.precipitation}mm`;
-            }
-            
-            // Get weather code description
-            const weatherCode = data.current.weather_code;
-            let weatherDescription = '';
-            
-            if (weatherCode === 0) weatherDescription = 'Clear sky';
-            else if (weatherCode >= 1 && weatherCode <= 3) weatherDescription = 'Partly cloudy';
-            else if (weatherCode >= 45 && weatherCode <= 48) weatherDescription = 'Fog';
-            else if (weatherCode >= 51 && weatherCode <= 55) weatherDescription = 'Drizzle';
-            else if (weatherCode >= 61 && weatherCode <= 65) weatherDescription = 'Rain';
-            else if (weatherCode >= 71 && weatherCode <= 77) weatherDescription = 'Snow';
-            else if (weatherCode >= 80 && weatherCode <= 82) weatherDescription = 'Rain showers';
-            else if (weatherCode >= 85 && weatherCode <= 86) weatherDescription = 'Snow showers';
-            else if (weatherCode >= 95 && weatherCode <= 99) weatherDescription = 'Thunderstorm';
-            
-            if (weatherDescription) {
-              message += ` | ${weatherDescription}`;
-            }
-            
-            // Create notification without the vibrate property
-            new Notification('Weather Update', {
-              body: message,
-              icon: '/icons/icon-192x192.png',
-              badge: '/icons/icon-72x72.png',
-              tag: 'weather-update' // Ensures only one notification is shown
-            });
-            
-            console.log('Weather notification sent:', message);
-          } catch (err) {
-            console.error('Failed to fetch weather for notification:', err);
-          }
-        }
-      }
-    };
-    
-    if (weatherAlerts.enabled) {
-      // Immediately check if notification is due
-      checkAndSendNotification();
-      
-      // Setup interval to check for notifications (every minute)
-      alertInterval = window.setInterval(checkAndSendNotification, 60000);
-    }
-    
-    return () => {
-      if (alertInterval) {
-        clearInterval(alertInterval);
-      }
-    };
-  }, [weatherAlerts, unit]);
-  
-  const handleUnitChange = (value: string) => {
-    setUnit(value as WeatherUnit);
-    toast({
-      title: "Unit updated",
-      description: `Temperature will now be displayed in ${value === 'celsius' ? 'Celsius' : 'Fahrenheit'}.`,
-    });
+  // Convert LocationData to the format expected by this component
+  const formattedLocation = location ? locationDataToComponentFormat(location) : {
+    lat: 3.1390, 
+    lon: 101.6869, 
+    name: "Kuala Lumpur",
+    isCurrentLocation: false
   };
   
-  const handleToggleWeatherAlerts = async () => {
-    // If turning ON alerts
-    if (!weatherAlerts.enabled) {
+  const [rememberLocation, setRememberLocation] = useState<boolean>(() => 
+    localStorage.getItem('fg-weather-remember-location') === 'true'
+  );
+  
+  const [weatherAlerts, setWeatherAlerts] = useState<boolean>(() => 
+    localStorage.getItem('fg-weather-alerts') === 'true'
+  );
+  
+  // Handle toggle for remembering location
+  const handleToggleRememberLocation = (checked: boolean) => {
+    setRememberLocation(checked);
+    localStorage.setItem('fg-weather-remember-location', checked.toString());
+    
+    if (!checked) {
+      // Clear saved location data
+      localStorage.removeItem('fg-weather-coordinates');
+      localStorage.removeItem('fg-weather-location-name');
+      localStorage.removeItem('fg-weather-is-current-location');
+      toast.info("Location preferences cleared");
+    } else {
+      toast.success("Location preferences will be remembered");
+    }
+  };
+  
+  // Toggle weather alerts
+  const handleToggleWeatherAlerts = async (checked: boolean) => {
+    if (checked) {
       // Check if notifications are supported
-      if (!notificationSupported) {
-        toast({
-          title: "Notifications not supported",
-          description: "Your browser does not support notifications.",
-          variant: "destructive",
-        });
+      if (!("Notification" in window)) {
+        toast.error("Notifications are not supported in your browser");
         return;
       }
       
       // Request permission if not already granted
-      if (Notification.permission !== 'granted') {
-        try {
-          const permission = await Notification.requestPermission();
-          setNotificationPermission(permission);
-          
-          if (permission === 'granted') {
-            // Enable alerts and send a test notification
-            setWeatherAlerts(prev => ({ 
-              ...prev, 
-              enabled: true,
-              lastAlertTime: Date.now() - (prev.interval * 60 * 1000) + (60 * 1000) // Set to trigger in 1 minute
-            }));
-            
-            toast({
-              title: "Weather alerts enabled",
-              description: "You will receive your first weather update in about a minute.",
-            });
-          } else {
-            toast({
-              title: "Notification permission denied",
-              description: "Please enable notifications in your browser settings to receive weather alerts.",
-              variant: "destructive",
-            });
-          }
-        } catch (err) {
-          console.error("Error requesting notification permission:", err);
-          toast({
-            title: "Error enabling notifications",
-            description: "There was a problem requesting notification permission.",
-            variant: "destructive",
-          });
-        }
-      } else {
-        // Permission already granted, enable alerts
-        setWeatherAlerts(prev => ({ 
-          ...prev, 
-          enabled: true,
-          lastAlertTime: Date.now() - (prev.interval * 60 * 1000) + (60 * 1000) // Set to trigger in 1 minute
-        }));
-        
-        toast({
-          title: "Weather alerts enabled",
-          description: "You will receive your first weather update in about a minute.",
-        });
-      }
-    } else {
-      // Disable alerts
-      setWeatherAlerts(prev => ({ ...prev, enabled: false }));
-      toast({
-        title: "Weather alerts disabled",
-        description: "You will no longer receive weather alerts.",
-      });
-    }
-  };
-  
-  // Send a test notification immediately
-  const sendTestNotification = async () => {
-    // Check if notifications are supported
-    if (!notificationSupported) {
-      toast({
-        title: "Notifications not supported",
-        description: "Your browser does not support notifications.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Request permission if not already granted
-    if (Notification.permission !== 'granted') {
-      try {
+      if (Notification.permission !== "granted") {
         const permission = await Notification.requestPermission();
-        setNotificationPermission(permission);
-        
-        if (permission !== 'granted') {
-          toast({
-            title: "Notification permission denied",
-            description: "Please enable notifications in your browser settings to receive weather alerts.",
-            variant: "destructive",
-          });
+        if (permission !== "granted") {
+          toast.error("Permission to send notifications was denied");
           return;
         }
-      } catch (err) {
-        console.error("Error requesting notification permission:", err);
-        toast({
-          title: "Error enabling notifications",
-          description: "There was a problem requesting notification permission.",
-          variant: "destructive",
-        });
+      }
+      
+      // Send a test notification
+      sendTestNotification();
+    }
+    
+    setWeatherAlerts(checked);
+    localStorage.setItem('fg-weather-alerts', checked.toString());
+  };
+  
+  // Handle clearing all app data
+  const handleClearAllData = () => {
+    // Clear all localStorage items related to the app
+    localStorage.removeItem('fg-weather-remember-location');
+    localStorage.removeItem('fg-weather-coordinates');
+    localStorage.removeItem('fg-weather-location-name');
+    localStorage.removeItem('fg-weather-is-current-location');
+    localStorage.removeItem('fg-weather-unit');
+    localStorage.removeItem('fg-weather-alerts');
+    localStorage.removeItem('fg-weather-theme');
+    
+    // Reset states
+    setRememberLocation(false);
+    setWeatherAlerts(false);
+    
+    // Notify user
+    toast.success("All app data has been cleared");
+    
+    // Reload the page to reflect changes
+    window.location.reload();
+  };
+  
+  // Send test notification using current weather data
+  const sendTestNotification = async () => {
+    if (!("Notification" in window)) {
+      toast.error("Notifications are not supported in your browser");
+      return;
+    }
+
+    // Check for mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobile) {
+      toast.warning(
+        "Browser notifications aren't fully supported on mobile devices. For best experience, install our web app to home screen or use desktop browser.",
+        {
+          duration: 6000,
+        }
+      );
+    }
+    
+    if (Notification.permission !== "granted") {
+      const permission = await Notification.requestPermission().catch(() => "denied");
+      if (permission !== "granted") {
+        toast.error("Permission to send notifications was denied");
         return;
       }
     }
     
-    // Get location info for the notification
-    const locationName = localStorage.getItem('fg-weather-location-name') || 'your location';
-    const coordinates = localStorage.getItem('fg-weather-coordinates');
-    
-    // Create a test notification
     try {
-      if (coordinates) {
-        // Fetch current weather data
-        const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${JSON.parse(coordinates).latitude}&longitude=${JSON.parse(coordinates).longitude}&current=temperature_2m,weather_code,precipitation&timezone=auto`
-        );
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch weather data');
-        }
-        
-        const data = await response.json();
-        
-        // Create notification with actual weather data
-        const message = `Current temperature at ${locationName}: ${Math.round(data.current.temperature_2m)}°${unit}. This is a test notification.`;
-        
-        new Notification('Weather Alert Test', {
-          body: message,
-          icon: '/icons/icon-192x192.png',
-          badge: '/icons/icon-72x72.png',
-          tag: 'weather-test'
-        });
-        
-        toast({
-          title: "Test notification sent",
-          description: "If you don't see the notification, please check your browser/system settings.",
-        });
-      } else {
-        // Fallback if no location data
-        new Notification('Weather Alert Test', {
-          body: `This is a test weather notification. Actual alerts will include current weather data for ${locationName}.`,
-          icon: '/icons/icon-192x192.png',
-          badge: '/icons/icon-72x72.png',
-          tag: 'weather-test'
-        });
-        
-        toast({
-          title: "Test notification sent",
-          description: "If you don't see the notification, please check your browser/system settings.",
-        });
-      }
-    } catch (error) {
-      console.error('Error sending test notification:', error);
-      toast({
-        title: "Error sending test notification",
-        description: "There was a problem fetching weather data or sending the notification.",
-        variant: "destructive",
-      });
-    }
-  };
-  
-  const handleAlertIntervalChange = (value: string) => {
-    const interval = parseInt(value);
-    setWeatherAlerts(prev => ({ 
-      ...prev, 
-      interval: interval,
-      // Reset the last alert time to trigger a new notification soon
-      lastAlertTime: Date.now() - (interval * 60 * 1000) + (2 * 60 * 1000) // Set to trigger in 2 minutes
-    }));
-    
-    toast({
-      title: "Alert interval updated",
-      description: `Weather alerts will be sent every ${value} minutes.`,
-    });
-  };
-  
-  const requestNotificationPermission = async () => {
-    try {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
+      setLoadingMessage("Preparing test notification...");
+      setIsLoading(true);
       
-      if (permission === 'granted') {
-        toast({
-          title: "Permission granted",
-          description: "You can now enable weather alerts.",
-        });
-        
-        // Send a test notification without vibrate property
-        new Notification('Notification Permission Granted', {
-          body: 'You can now enable weather alerts in the settings.',
-          icon: '/icons/icon-192x192.png'
+      // Fetch current weather for notification content
+      const weatherData = await fetchWeatherByCoordinates({
+        latitude: formattedLocation.lat,
+        longitude: formattedLocation.lon
+      }, 'celsius');
+      
+      const temp = formatTemperature(weatherData.current.temperature, 'celsius');
+      
+      if (isMobile) {
+        // On mobile, show a toast instead of notification
+        toast.info(`Current weather in ${formattedLocation.name}: ${temp}. This is a test notification.`, {
+          duration: 5000,
         });
       } else {
-        toast({
-          title: permission === 'denied' ? "Permission denied" : "Permission not granted",
-          description: permission === 'denied' 
-            ? "Please enable notifications in your browser settings to use weather alerts." 
-            : "You need to allow notifications to receive weather alerts.",
-          variant: "destructive",
+        // Regular notification on desktop
+        new Notification("FGWeather Alert", {
+          body: `Current weather in ${formattedLocation.name}: ${temp}. This is a test notification.`,
+          icon: "/logo192.png"
         });
       }
+      
+      toast.success("Test notification sent!");
     } catch (error) {
-      console.error('Error requesting notification permission:', error);
-      toast({
-        title: "Permission error",
-        description: "There was an error requesting notification permission.",
-        variant: "destructive",
-      });
+      console.error("Error sending test notification:", error);
+      toast.error("Failed to send test notification");
+    } finally {
+      setIsLoading(false);
     }
   };
   
-  const clearCache = () => {
-    // Clear all cached API responses
-    const cacheKeys = [
-      'fg-weather-cache-recent',
-      'fg-weather-cache-forecast',
-      'fg-weather-cache-airquality'
-    ];
+  // Handle location change from search
+  const handleLocationChange = (newLocation: { lat: number; lon: number; name: string }) => {
+    // Convert to LocationData format
+    const locationData: LocationData = {
+      latitude: newLocation.lat,
+      longitude: newLocation.lon,
+      name: newLocation.name,
+      isCurrentLocation: false
+    };
     
-    cacheKeys.forEach(key => localStorage.removeItem(key));
-    
-    toast({
-      title: "Cache cleared",
-      description: "All weather data cache has been cleared.",
-    });
-  };
-  
-  const resetSettings = () => {
-    // Reset to default settings
-    setUnit('celsius');
-    setRememberLocation(true);
-    setAutoRefresh(true);
-    setWeatherAlerts({ enabled: false, interval: 60 });
-    
-    toast({
-      title: "Settings reset",
-      description: "All settings have been reset to default values.",
-    });
+    // Update location in the context
+    updateLocation(locationData);
   };
   
   const pageVariants = {
@@ -463,49 +188,20 @@ export default function Settings() {
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -20 }
   };
-
-  // Determine notification status message and icon
-  const getNotificationStatus = () => {
-    if (!notificationSupported) {
-      return {
-        message: "Notifications are not supported in your browser",
-        icon: <AlertTriangle className="h-5 w-5 text-red-500" />,
-        color: "text-red-500"
-      };
-    }
-    
-    switch (notificationPermission) {
-      case 'granted':
-        return {
-          message: "Notifications are enabled",
-          icon: <BellRing className="h-5 w-5 text-green-500" />,
-          color: "text-green-500"
-        };
-      case 'denied':
-        return {
-          message: "Notifications are blocked. Please update your browser settings.",
-          icon: <BellOff className="h-5 w-5 text-red-500" />,
-          color: "text-red-500"
-        };
-      default:
-        return {
-          message: "Notification permission not requested yet",
-          icon: <Bell className="h-5 w-5 text-orange-500" />,
-          color: "text-orange-500"
-        };
-    }
-  };
   
-  const notificationStatus = getNotificationStatus();
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-purple-100 dark:from-slate-900 dark:to-slate-800 transition-all duration-500">
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 dark:from-slate-900 dark:to-slate-800 transition-all duration-500">
+      <Helmet>
+        <title>Settings | FGWeather</title>
+      </Helmet>
+      
       <div className="container mx-auto px-4 py-6 min-h-screen">
         <header className="flex flex-col space-y-6 mb-8">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl md:text-3xl font-bold gradient-text">FGWeather</h1>
           </div>
           <Navigation />
+          <LocationSearch onLocationChange={handleLocationChange} />
         </header>
         
         <motion.main
@@ -514,190 +210,149 @@ export default function Settings() {
           animate="animate"
           exit="exit"
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className="space-y-6 max-w-2xl mx-auto"
+          className="space-y-6"
         >
-          <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg">
-            <CardHeader>
-              <CardTitle>Settings</CardTitle>
-              <CardDescription>Customize your weather experience</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Appearance</h3>
-                <Separator />
-                
-                <div className="flex justify-between items-center">
-                  <div>
-                    <Label htmlFor="theme">Theme</Label>
-                    <p className="text-sm text-muted-foreground">Choose between light and dark mode</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Sun className="mr-2 h-5 w-5" />
+                  <span>Appearance</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="theme-toggle">Theme Mode</Label>
+                    <CardDescription>
+                      Choose between light and dark mode
+                    </CardDescription>
                   </div>
-                  <ThemeToggle />
+                  <div className="flex items-center space-x-2">
+                    <Sun className="h-5 w-5 text-yellow-500" />
+                    <Switch 
+                      id="theme-toggle"
+                      checked={theme === 'dark'}
+                      onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                    />
+                    <Moon className="h-5 w-5 text-blue-500" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <MapPin className="mr-2 h-5 w-5" />
+                  <span>Location</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="remember-location">Remember Location</Label>
+                    <CardDescription>
+                      Save your location preferences between visits
+                    </CardDescription>
+                  </div>
+                  <Switch 
+                    id="remember-location"
+                    checked={rememberLocation}
+                    onCheckedChange={handleToggleRememberLocation}
+                  />
                 </div>
                 
-                <div className="flex justify-between items-center">
-                  <div>
-                    <Label htmlFor="unit">Temperature Unit</Label>
-                    <p className="text-sm text-muted-foreground">Select your preferred temperature unit</p>
+                <div>
+                  <div className="flex items-center mt-4 mb-2">
+                    <h3 className="text-sm font-medium">Current Selected Location</h3>
                   </div>
-                  <UnitToggle unit={unit} onUnitChange={handleUnitChange} />
+                  <div className="flex items-center space-x-2 text-sm p-2 bg-white/20 dark:bg-slate-700/20 rounded-md">
+                    <MapPin className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="truncate">
+                      {formattedLocation.name} 
+                      {formattedLocation.isCurrentLocation && " (Current Location)"}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Preferences</h3>
-                <Separator />
+              </CardContent>
+            </Card>
+            
+            <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <BellRing className="mr-2 h-5 w-5" />
+                  <span>Notifications</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="weather-alerts">Weather Alerts</Label>
+                    <CardDescription>
+                      Receive notifications about severe weather conditions
+                    </CardDescription>
+                  </div>
+                  <Switch 
+                    id="weather-alerts"
+                    checked={weatherAlerts}
+                    onCheckedChange={handleToggleWeatherAlerts}
+                  />
+                </div>
                 
-                {/* Notification Status */}
-                <div className="flex items-center p-3 bg-slate-100 dark:bg-slate-800 rounded-md mb-4">
-                  {notificationStatus.icon}
-                  <span className={`ml-2 text-sm ${notificationStatus.color}`}>
-                    {notificationStatus.message}
-                  </span>
-                  
-                  {notificationPermission !== 'granted' && notificationPermission !== 'denied' && (
+                {weatherAlerts && (
+                  <div className="mt-4">
                     <Button 
                       variant="outline" 
-                      size="sm" 
-                      className="ml-auto"
-                      onClick={requestNotificationPermission}
+                      size="sm"
+                      className="flex items-center gap-2"
+                      onClick={sendTestNotification}
                     >
-                      Request Permission
+                      <Bell className="h-4 w-4" />
+                      Test Notification
                     </Button>
-                  )}
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-6">
-                    <div className="grid gap-3">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="alert-enable">Weather Alerts</Label>
-                          <p className="text-sm text-muted-foreground">
-                            {weatherAlerts.enabled 
-                              ? `Every ${weatherAlerts.interval} minutes` 
-                              : "Receive weather updates periodically"}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          {weatherAlerts.enabled && (
-                            <Button
-                              size="sm"
-                              variant="outline" 
-                              onClick={sendTestNotification}
-                              className="flex items-center gap-2"
-                            >
-                              <Bell className="h-4 w-4" />
-                              <span>Test</span>
-                            </Button>
-                          )}
-                          <Switch 
-                            id="alert-enable"
-                            checked={weatherAlerts.enabled}
-                            onCheckedChange={handleToggleWeatherAlerts}
-                          />
-                        </div>
-                      </div>
-                    </div>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+            
+            <Card className="backdrop-blur-sm bg-white/50 dark:bg-slate-800/50 border-white/10 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Trash2 className="mr-2 h-5 w-5 text-red-500" />
+                  <span>Data Management</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Clear All Data</Label>
+                  <CardDescription>
+                    This will reset all your preferences and saved data
+                  </CardDescription>
                   
-                  {weatherAlerts.enabled && (
-                    <div className="pl-6 border-l-2 border-primary/20 mt-2">
-                      <div className="flex items-center space-x-2">
-                        <Label htmlFor="alertInterval">Alert Interval (minutes)</Label>
-                        <Select value={weatherAlerts.interval.toString()} onValueChange={handleAlertIntervalChange}>
-                          <SelectTrigger id="alertInterval">
-                            <SelectValue placeholder="Select alert interval" />
-                          </SelectTrigger>
-                          <SelectContent position="popper">
-                            <SelectItem value="30">30 minutes</SelectItem>
-                            <SelectItem value="60">1 hour</SelectItem>
-                            <SelectItem value="180">3 hours</SelectItem>
-                            <SelectItem value="360">6 hours</SelectItem>
-                            <SelectItem value="720">12 hours</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        <BellRing className="inline-block mr-1 h-4 w-4" />
-                        Next alert will be sent approximately {weatherAlerts.interval} minutes after the last one
-                      </p>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="flex justify-between items-center">
-                  <div>
-                    <Label htmlFor="location">Remember Location</Label>
-                    <p className="text-sm text-muted-foreground">Store your last searched location</p>
-                  </div>
-                  <Switch 
-                    id="location" 
-                    checked={rememberLocation} 
-                    onCheckedChange={setRememberLocation} 
-                  />
-                </div>
-                
-                <div className="flex justify-between items-center">
-                  <div>
-                    <Label htmlFor="auto-refresh">Auto Refresh</Label>
-                    <p className="text-sm text-muted-foreground">Automatically update weather data</p>
-                  </div>
-                  <Switch 
-                    id="auto-refresh" 
-                    checked={autoRefresh} 
-                    onCheckedChange={setAutoRefresh} 
-                  />
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium">Data Management</h3>
-                <Separator />
-                
-                <div className="flex justify-between items-center">
-                  <div>
-                    <Label>Clear Cache</Label>
-                    <p className="text-sm text-muted-foreground">Remove stored weather data</p>
-                  </div>
                   <Button 
-                    variant="outline" 
+                    variant="destructive" 
                     size="sm"
-                    onClick={clearCache}
-                    className="flex items-center space-x-1"
+                    className="mt-2"
+                    onClick={handleClearAllData}
                   >
-                    <Trash2 className="h-4 w-4 mr-1" />
-                    Clear
+                    Reset All Settings
                   </Button>
                 </div>
-                
-                <div className="flex justify-between items-center">
-                  <div>
-                    <Label>Reset Settings</Label>
-                    <p className="text-sm text-muted-foreground">Restore default settings</p>
-                  </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={resetSettings}
-                    className="flex items-center space-x-1"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    Reset
-                  </Button>
+              </CardContent>
+              <CardFooter className="border-t px-6 py-4 bg-slate-50/50 dark:bg-slate-800/50">
+                <div className="flex items-start space-x-2 text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs">
+                    Clearing data cannot be undone. All your preferences will be reset to default.
+                  </p>
                 </div>
-              </div>
-              
-              <div className="mt-6 p-3 bg-blue-50 dark:bg-slate-700/50 rounded-lg flex items-start space-x-3">
-                <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-                <p className="text-sm text-muted-foreground">
-                  FGWeather uses Open-Meteo API to provide accurate weather forecasts. Your location data is only used to provide local weather information.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+              </CardFooter>
+            </Card>
+          </div>
         </motion.main>
         
-        <footer className="mt-8 pt-4 text-sm text-center text-white/70 dark:text-slate-400">
+        <footer className="mt-8 pt-4 text-sm text-center text-slate-500 dark:text-slate-400">
           <p>Developed by Faiz Nasir</p>
         </footer>
       </div>

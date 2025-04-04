@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -9,7 +8,8 @@ import {
   Wind, 
   Settings as SettingsIcon, 
   Menu, 
-  X 
+  X,
+  Newspaper
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -27,6 +27,7 @@ export function Navigation() {
     { path: "/", label: "Weather", icon: <Home className="h-5 w-5" /> },
     { path: "/map", label: "Map", icon: <MapPin className="h-5 w-5" /> },
     { path: "/air-quality", label: "Air Quality", icon: <Wind className="h-5 w-5" /> },
+    { path: "/news", label: "News", icon: <Newspaper className="h-5 w-5" /> },
     { path: "/settings", label: "Settings", icon: <SettingsIcon className="h-5 w-5" /> }
   ];
 

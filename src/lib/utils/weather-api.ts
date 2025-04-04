@@ -1,4 +1,5 @@
 import axios from "axios";
+import { toast } from "sonner";
 
 // Constants
 const BASE_URL = "https://api.open-meteo.com/v1";
@@ -304,5 +305,96 @@ export const getCurrentLocation = (): Promise<Coordinates> => {
         maximumAge: 1000 * 60 * 10 // 10 minutes - accept cached position
       }
     );
+  });
+};
+
+/**
+ * Weather API utility for optimized data fetching and caching
+ */
+const cache = new Map<string, { data: any, timestamp: number }>();
+
+// Cache expiration (15 minutes)
+const CACHE_EXPIRATION = 15 * 60 * 1000;
+
+/**
+ * Fetch weather data with built-in caching
+ * @param latitude Latitude of location
+ * @param longitude Longitude of location
+ * @param params Additional API parameters
+ * @returns Weather data
+ */
+export const fetchWeatherDataOptimized = async (
+  latitude: number,
+  longitude: number,
+  params: string = "current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,weather_code,cloud_cover&daily=temperature_2m_max,temperature_2m_min,precipitation_sum"
+): Promise<any> => {
+  // Round coordinates to reduce cache variations
+  const roundedLat = parseFloat(latitude.toFixed(2));
+  const roundedLon = parseFloat(longitude.toFixed(2));
+  
+  // Create cache key
+  const cacheKey = `weather:${roundedLat}:${roundedLon}:${params}`;
+  
+  // Check if data is in cache and not expired
+  const cached = cache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_EXPIRATION) {
+    console.log("Using cached weather data");
+    return cached.data;
+  }
+  
+  // Otherwise fetch fresh data
+  try {
+    const response = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${roundedLat}&longitude=${roundedLon}&${params}&timezone=auto`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch weather data: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Cache the result
+    cache.set(cacheKey, { data, timestamp: Date.now() });
+    
+    return data;
+  } catch (error) {
+    console.error("Error fetching weather data:", error);
+    throw error;
+  }
+};
+
+/**
+ * Clear all cached weather data
+ */
+export const clearWeatherCache = (): void => {
+  cache.clear();
+  console.log("Weather cache cleared");
+};
+
+/**
+ * Prefetch weather data for common locations
+ */
+export const prefetchCommonLocations = async (): Promise<void> => {
+  // Major cities to prefetch
+  const locations = [
+    { lat: 3.1390, lon: 101.6869 }, // Kuala Lumpur
+    { lat: 35.6762, lon: 139.6503 }, // Tokyo
+    { lat: 51.5074, lon: -0.1278 }, // London
+    { lat: 40.7128, lon: -74.0060 }, // New York
+    { lat: 1.3521, lon: 103.8198 } // Singapore
+  ];
+  
+  // Simpler parameters for prefetch
+  const simplifiedParams = "current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min";
+  
+  // Fetch in parallel but don't wait for completion
+  locations.forEach(async ({ lat, lon }) => {
+    try {
+      await fetchWeatherDataOptimized(lat, lon, simplifiedParams);
+    } catch (error) {
+      // Silently fail - this is just prefetching
+      console.log(`Failed to prefetch weather for ${lat},${lon}`);
+    }
   });
 };

@@ -21,6 +21,8 @@ import { Progress } from "@/components/ui/progress";
 import { LocationSearch } from "@/components/LocationSearch";
 import { fetchAirQualityData } from "@/lib/utils/air-quality-api";
 import { useLoading } from "@/App";
+import { useLocation, locationDataToComponentFormat, componentFormatToLocationData } from "@/contexts/LocationContext";
+import { LocationData } from "@/lib/utils/location-utils";
 
 interface AirQualityLevels {
   [key: string]: {
@@ -34,153 +36,47 @@ interface AirQualityLevels {
   }
 }
 
-interface LocationState {
-  lat: number;
-  lon: number;
-  name: string;
-  isCurrentLocation?: boolean;
-}
-
 export default function AirQuality() {
-  const [location, setLocation] = useState<LocationState>({ 
+  const { location, isLoading: isLocationLoading, updateLocation } = useLocation();
+  
+  // Convert LocationData to the format expected by this component
+  const formattedLocation = location ? locationDataToComponentFormat(location) : {
     lat: 3.1390, 
     lon: 101.6869, 
     name: "Kuala Lumpur",
     isCurrentLocation: false
-  }); // Default to Kuala Lumpur
+  };
   
-  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const { setIsLoading, setLoadingMessage } = useLoading();
   
-  const { data: airQualityData, isLoading, error, refetch } = useQuery({
-    queryKey: ['airQuality', location.lat, location.lon],
-    queryFn: () => fetchAirQualityData(location.lat, location.lon),
+  const { data: airQualityData, isLoading: isDataLoading, error, refetch } = useQuery({
+    queryKey: ['airQuality', formattedLocation.lat, formattedLocation.lon],
+    queryFn: () => fetchAirQualityData(formattedLocation.lat, formattedLocation.lon),
     staleTime: 1000 * 60 * 30, // 30 minutes
-    retry: 2
+    retry: 2,
+    enabled: !!formattedLocation
   });
 
-  // Use the saved location from localStorage if "remember location" is enabled
   useEffect(() => {
-    const rememberLocation = localStorage.getItem('fg-weather-remember-location') === 'true';
-    
-    if (rememberLocation) {
-      const savedCoords = localStorage.getItem('fg-weather-coordinates');
-      const savedLocationName = localStorage.getItem('fg-weather-location-name');
-      const isCurrentLocation = localStorage.getItem('fg-weather-is-current-location') === 'true';
-      
-      if (savedCoords && savedLocationName) {
-        try {
-          const coords = JSON.parse(savedCoords);
-          setLocation({ 
-            lat: coords.latitude, 
-            lon: coords.longitude,
-            name: savedLocationName,
-            isCurrentLocation: isCurrentLocation || false
-          });
-        } catch (e) {
-          console.error("Error parsing saved coordinates:", e);
-        }
-      }
+    if (isDataLoading) {
+      setIsLoading(true);
+      setLoadingMessage("Loading air quality data...");
+    } else {
+      setIsLoading(false);
     }
-  }, []);
-
-  // Detect user location in the background
-  useEffect(() => {
-    // Only try to detect location if we're not using a saved one
-    if (!location.isCurrentLocation && navigator.geolocation) {
-      setIsDetectingLocation(true);
-      
-      navigator.geolocation.getCurrentPosition(async (position) => {
-        try {
-          // Get the actual location name using reverse geocoding
-          const response = await fetch(
-            `https://geocoding-api.open-meteo.com/v1/search?latitude=${position.coords.latitude}&longitude=${position.coords.longitude}&count=1&language=en&format=json`
-          );
-          
-          if (!response.ok) {
-            throw new Error('Failed to fetch location name');
-          }
-          
-          const data = await response.json();
-          let locationName;
-          
-          if (data.results && data.results.length > 0) {
-            // Use the actual name, with city/town, state/district if available
-            locationName = data.results[0].name;
-            
-            if (data.results[0].admin3) {
-              locationName = `${locationName}, ${data.results[0].admin3}`;
-            } else if (data.results[0].admin2) {
-              locationName = `${locationName}, ${data.results[0].admin2}`;
-            } else if (data.results[0].admin1) {
-              locationName = `${locationName}, ${data.results[0].admin1}`;
-            }
-          } else {
-            // Fallback to coordinates if no name is found
-            locationName = `Location (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`;
-          }
-          
-          // Save to localStorage that this is the current location
-          if (localStorage.getItem('fg-weather-remember-location') === 'true') {
-            localStorage.setItem('fg-weather-is-current-location', 'true');
-            localStorage.setItem('fg-weather-coordinates', JSON.stringify({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude
-            }));
-            localStorage.setItem('fg-weather-location-name', locationName);
-          }
-          
-          setLocation({ 
-            lat: position.coords.latitude, 
-            lon: position.coords.longitude,
-            name: locationName,
-            isCurrentLocation: true
-          });
-          
-          toast.success(`Location detected: ${locationName}`);
-        } catch (err) {
-          console.error("Geocoding error:", err);
-          // Use coordinates as fallback location name
-          const fallbackName = `Location (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`;
-          
-          setLocation({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-            name: fallbackName,
-            isCurrentLocation: true
-          });
-          
-          // Also save this to localStorage
-          if (localStorage.getItem('fg-weather-remember-location') === 'true') {
-            localStorage.setItem('fg-weather-location-name', fallbackName);
-          }
-        } finally {
-          setIsDetectingLocation(false);
-        }
-      }, (err) => {
-        console.error("Geolocation error:", err);
-        setIsDetectingLocation(false);
-        // Keep default location if geolocation fails
-        toast.error("Location detection failed. Using default location (Kuala Lumpur).");
-      });
-    }
-  }, []);
+  }, [isDataLoading, setIsLoading, setLoadingMessage]);
 
   const handleLocationChange = (newLocation: { lat: number; lon: number; name: string }) => {
     // When manually selecting a location, it's not the user's current location
-    setLocation({
-      lat: newLocation.lat,
-      lon: newLocation.lon,
+    const locationData: LocationData = {
+      latitude: newLocation.lat,
+      longitude: newLocation.lon,
       name: newLocation.name,
       isCurrentLocation: false
-    });
+    };
     
-    // Update localStorage flag
-    if (localStorage.getItem('fg-weather-remember-location') === 'true') {
-      localStorage.setItem('fg-weather-is-current-location', 'false');
-    }
-    
-    toast.success(`Location updated to ${newLocation.name}`);
+    // Update location in the context
+    updateLocation(locationData);
   };
   
   const pageVariants = {
@@ -256,7 +152,7 @@ export default function AirQuality() {
     return airQualityLevels["5"].progressColor;
   };
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLocationLoading || isDataLoading) return <LoadingScreen />;
   
   if (error) return <ErrorDisplay message={(error as Error).message} />;
 
@@ -290,27 +186,18 @@ export default function AirQuality() {
                 <div>
                   <CardTitle className="text-2xl">Air Quality Index</CardTitle>
                   <CardDescription className="flex items-center">
-                    {isDetectingLocation ? (
-                      <div className="flex items-center">
-                        <span>Detecting location</span>
-                        <Loader2 className="ml-2 h-3 w-3 animate-spin" />
-                      </div>
-                    ) : (
-                      <>
-                        {location.name}
-                        {location.isCurrentLocation && (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <MapPin className="ml-1 h-4 w-4 text-blue-500" />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Your current location</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                      </>
+                    {formattedLocation.name}
+                    {formattedLocation.isCurrentLocation && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <MapPin className="ml-1 h-4 w-4 text-blue-500" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Your current location</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )}
                     <span className="mx-1">-</span>
                     {new Date().toLocaleDateString()}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Helmet } from "react-helmet-async";
@@ -12,7 +12,9 @@ import {
   ThermometerSnowflake,
   ThermometerSun,
   MapPin,
-  Loader2
+  Loader2,
+  Bell,
+  RefreshCw
 } from "lucide-react";
 import { Navigation } from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -25,131 +27,104 @@ import { WeatherMap } from "@/components/WeatherMap";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLoading } from "@/App";
+import { useLocation, locationDataToComponentFormat } from "@/contexts/LocationContext";
+import { LocationData } from "@/lib/utils/location-utils";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 export default function WeatherMapPage() {
+  const { location, isLoading: isLocationLoading, updateLocation } = useLocation();
+  
+  // Convert LocationData to the format expected by this component
+  const formattedLocation = location ? locationDataToComponentFormat(location) : {
+    lat: 3.1390, 
+    lon: 101.6869, 
+    name: "Kuala Lumpur",
+    isCurrentLocation: false
+  };
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mapType, setMapType] = useState<string>("temp");
-  const [unit, setUnit] = useState<'celsius' | 'fahrenheit'>(() => 
-    (localStorage.getItem('fg-weather-unit') as 'celsius' | 'fahrenheit') || 'celsius'
-  );
-  const [location, setLocation] = useState(() => {
-    // Try to load from localStorage first if remember location is enabled
-    const rememberLocation = localStorage.getItem('fg-weather-remember-location') === 'true';
-    const savedCoords = localStorage.getItem('fg-weather-coordinates');
-    const savedName = localStorage.getItem('fg-weather-location-name');
+  const [mapType, setMapType] = useState<"temperature" | "precipitation" | "clouds" | "wind">("temperature");
+  const [unit, setUnit] = useState<"celsius" | "fahrenheit">(() => {
+    const savedUnit = localStorage.getItem("fg-weather-unit");
+    return (savedUnit === "fahrenheit" ? "fahrenheit" : "celsius");
+  });
+  
+  const { setIsLoading: setGlobalLoading, setLoadingMessage } = useLoading();
+  
+  // Set global loading state based on map loading
+  useEffect(() => {
+    if (isLoading || isLocationLoading) {
+      setGlobalLoading(true);
+      setLoadingMessage("Loading weather map...");
+    } else {
+      setGlobalLoading(false);
+    }
+  }, [isLoading, isLocationLoading, setGlobalLoading, setLoadingMessage]);
+  
+  // Toggle temperature unit and save preference
+  const toggleUnit = () => {
+    const newUnit = unit === "celsius" ? "fahrenheit" : "celsius";
+    setUnit(newUnit);
+    localStorage.setItem("fg-weather-unit", newUnit);
+  };
+  
+  // Handle map loading state
+  const handleMapLoaded = () => {
+    setIsLoading(false);
+  };
+  
+  // Handle map error
+  const handleMapError = (errorMessage: string) => {
+    setError(errorMessage);
+    setIsLoading(false);
+  };
+  
+  // Test notification functionality
+  const testNotification = async () => {
+    if (!("Notification" in window)) {
+      toast.error("Notifications are not supported in your browser");
+      return;
+    }
     
-    if (rememberLocation && savedCoords && savedName) {
-      try {
-        const coords = JSON.parse(savedCoords);
-        return {
-          lat: coords.latitude,
-          lon: coords.longitude,
-          name: savedName,
-          isCurrentLocation: localStorage.getItem('fg-weather-is-current-location') === 'true'
-        };
-      } catch (e) {
-        // Fallback to default
-        return { lat: 3.1390, lon: 101.6869, name: "Kuala Lumpur", isCurrentLocation: false };
+    if (Notification.permission !== "granted") {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        toast.error("Permission to send notifications was denied");
+        return;
       }
     }
     
-    // Default to London
-    return { lat: 3.1390, lon: 101.6869, name: "Kuala Lumpur", isCurrentLocation: false };
-  });
+    try {
+      new Notification("FGWeather Test Notification", {
+        body: `Weather alert test for ${formattedLocation.name}. This is a test notification.`,
+        icon: "/logo192.png"
+      });
+      toast.success("Test notification sent!");
+    } catch (error) {
+      toast.error("Failed to send test notification");
+      console.error(error);
+    }
+  };
   
-  // Get user's location if not already using a saved one
-  useEffect(() => {
-    if (!location.isCurrentLocation && navigator.geolocation) {
-      setIsLoading(true);
-      
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            // Get the actual location name using reverse geocoding
-            const response = await fetch(
-              `https://geocoding-api.open-meteo.com/v1/search?latitude=${position.coords.latitude}&longitude=${position.coords.longitude}&count=1&language=en&format=json`
-            );
-            
-            if (!response.ok) {
-              throw new Error('Failed to fetch location name');
-            }
-            
-            const data = await response.json();
-            let locationName;
-            
-            if (data.results && data.results.length > 0) {
-              // Use the actual name, with city/town, state/district if available
-              locationName = data.results[0].name;
-              
-              if (data.results[0].admin3) {
-                locationName = `${locationName}, ${data.results[0].admin3}`;
-              } else if (data.results[0].admin2) {
-                locationName = `${locationName}, ${data.results[0].admin2}`;
-              } else if (data.results[0].admin1) {
-                locationName = `${locationName}, ${data.results[0].admin1}`;
-              }
-            } else {
-              // Fallback to coordinates if no name is found
-              locationName = `Location (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`;
-            }
-            
-            setLocation({
-              lat: position.coords.latitude,
-              lon: position.coords.longitude,
-              name: locationName,
-              isCurrentLocation: true
-            });
-            
-            // Save to localStorage that this is the current location
-            if (localStorage.getItem('fg-weather-remember-location') === 'true') {
-              localStorage.setItem('fg-weather-is-current-location', 'true');
-              localStorage.setItem('fg-weather-coordinates', JSON.stringify({
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude
-              }));
-              localStorage.setItem('fg-weather-location-name', locationName);
-            }
-            
-            setIsLoading(false);
-          } catch (err) {
-            console.error("Geocoding error:", err);
-            // Use coordinates as fallback location name
-            const fallbackName = `Location (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})`;
-            
-            setLocation({
-              lat: position.coords.latitude,
-              lon: position.coords.longitude,
-              name: fallbackName,
-              isCurrentLocation: true
-            });
-            
-            setIsLoading(false);
-          }
-        },
-        (error) => {
-          console.error("Geolocation error:", error);
-          setIsLoading(false);
-          toast.error("Couldn't get your location. Using default.");
-        }
-      );
-    } else {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // Handle location change from search
   const handleLocationChange = (newLocation: { lat: number; lon: number; name: string }) => {
-    setLocation({
-      ...newLocation,
+    // Convert to LocationData format
+    const locationData: LocationData = {
+      latitude: newLocation.lat,
+      longitude: newLocation.lon,
+      name: newLocation.name,
       isCurrentLocation: false
-    });
+    };
     
-    // Update localStorage flag
-    if (localStorage.getItem('fg-weather-remember-location') === 'true') {
-      localStorage.setItem('fg-weather-is-current-location', 'false');
-    }
+    // Update location in the context
+    updateLocation(locationData);
     
-    toast.success(`Map centered on ${newLocation.name}`);
+    // Reset loading state for map
+    setIsLoading(true);
+    setError(null);
   };
   
   const pageVariants = {
@@ -158,37 +133,12 @@ export default function WeatherMapPage() {
     exit: { opacity: 0, y: -20 }
   };
 
-  // Testing notification function 
-  const testNotification = () => {
-    if (!("Notification" in window)) {
-      toast.error("Notifications are not supported in your browser");
-      return;
-    }
-    
-    Notification.requestPermission().then(permission => {
-      if (permission === "granted") {
-        // Show test notification with the current map location
-        const notification = new Notification("Weather Map Notification Test", {
-          body: `This is a test notification for ${location.name}`,
-          icon: "/icons/icon-192x192.png",
-          badge: "/icons/icon-72x72.png"
-        });
-        
-        toast.success("Test notification sent!");
-      } else {
-        toast.error("Notification permission denied. Please enable notifications in your browser settings.");
-      }
-    });
-  };
-
-  if (isLoading) return <LoadingScreen />;
-  
   if (error) return <ErrorDisplay message={error} />;
 
   return (
     <>
       <Helmet>
-        <title>Weather Map | FGWeather</title>
+        <title>Weather Map | {formattedLocation.name} | FGWeather</title>
         <meta name="description" content="Interactive weather map visualization for any location" />
       </Helmet>
       
@@ -214,15 +164,21 @@ export default function WeatherMapPage() {
                 FGWeather
               </motion.h1>
               <div className="flex items-center space-x-2">
-                <UnitToggle unit={unit} onUnitChange={(val) => setUnit(val as 'celsius' | 'fahrenheit')} />
+                <Label htmlFor="unit-toggle" className="text-sm font-medium">°C</Label>
+                <Switch 
+                  id="unit-toggle"
+                  checked={unit === "fahrenheit"}
+                  onCheckedChange={toggleUnit}
+                />
+                <Label htmlFor="unit-toggle" className="text-sm font-medium">°F</Label>
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  onClick={testNotification}
                   className="flex items-center gap-1"
+                  onClick={testNotification}
                 >
-                  <Sun className="h-4 w-4" />
-                  <span className="hidden sm:inline">Test Notification</span>
+                  <Bell className="h-4 w-4" />
+                  <span className="hidden sm:inline">Test</span>
                 </Button>
               </div>
             </div>
@@ -235,7 +191,7 @@ export default function WeatherMapPage() {
                 className="w-full sm:w-auto flex-grow"
               />
               
-              {location.isCurrentLocation && (
+              {formattedLocation.isCurrentLocation && (
                 <Badge variant="outline" className="flex gap-1 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
                   <MapPin className="h-3.5 w-3.5" />
                   Current Location
@@ -260,30 +216,30 @@ export default function WeatherMapPage() {
                     <span>Weather Map</span>
                   </CardTitle>
                   <CardDescription className="flex items-center gap-1.5">
-                    {location.name}
-                    {location.isCurrentLocation && (
+                    {formattedLocation.name}
+                    {formattedLocation.isCurrentLocation && (
                       <MapPin className="h-3.5 w-3.5 text-blue-500" />
                     )}
                   </CardDescription>
                 </div>
                 
-                <Tabs defaultValue="temp" className="w-full sm:w-auto" onValueChange={setMapType}>
-                  <TabsList className="grid grid-cols-2 sm:grid-cols-4 w-full sm:w-auto">
-                    <TabsTrigger value="temp" className="flex items-center gap-1.5">
-                      <ThermometerSun className="h-3.5 w-3.5" />
-                      <span>Temperature</span>
+                <Tabs defaultValue="temperature" value={mapType} onValueChange={(value) => setMapType(value as any)}>
+                  <TabsList className="grid grid-cols-4 md:w-[400px]">
+                    <TabsTrigger value="temperature" className="flex items-center gap-1">
+                      <ThermometerSun className="h-4 w-4" />
+                      <span className="hidden md:inline">Temperature</span>
                     </TabsTrigger>
-                    <TabsTrigger value="precipitation" className="flex items-center gap-1.5">
-                      <Droplets className="h-3.5 w-3.5" />
-                      <span>Rain</span>
+                    <TabsTrigger value="precipitation" className="flex items-center gap-1">
+                      <Droplets className="h-4 w-4" />
+                      <span className="hidden md:inline">Rain</span>
                     </TabsTrigger>
-                    <TabsTrigger value="clouds" className="flex items-center gap-1.5">
-                      <Cloud className="h-3.5 w-3.5" />
-                      <span>Clouds</span>
+                    <TabsTrigger value="clouds" className="flex items-center gap-1">
+                      <Cloud className="h-4 w-4" />
+                      <span className="hidden md:inline">Clouds</span>
                     </TabsTrigger>
-                    <TabsTrigger value="wind" className="flex items-center gap-1.5">
-                      <Wind className="h-3.5 w-3.5" />
-                      <span>Wind</span>
+                    <TabsTrigger value="wind" className="flex items-center gap-1">
+                      <Wind className="h-4 w-4" />
+                      <span className="hidden md:inline">Wind</span>
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
@@ -291,9 +247,11 @@ export default function WeatherMapPage() {
               <CardContent>
                 <div className="h-[75vh] w-full rounded-lg overflow-hidden shadow-lg">
                   <WeatherMap 
-                    location={location}
+                    location={formattedLocation}
                     mapType={mapType} 
                     unit={unit} 
+                    onLoaded={handleMapLoaded}
+                    onError={handleMapError}
                   />
                 </div>
               </CardContent>
@@ -305,7 +263,7 @@ export default function WeatherMapPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {mapType === "temp" && (
+                  {mapType === "temperature" && (
                     <>
                       <div className="flex items-center space-x-2">
                         <div className="w-6 h-6 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 shadow-md"></div>

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, memo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState, memo, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
+import { fetchWeatherDataOptimized } from "@/lib/utils/weather-api";
 
 interface WeatherMapProps {
   mapType: string;
@@ -14,49 +15,100 @@ interface WeatherMapProps {
     lon: number;
     name: string;
   };
+  onLoaded?: () => void;
+  onError?: (message: string) => void;
 }
 
 // Memoized component to prevent unnecessary re-renders
-const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
+const WeatherMap = memo(({ mapType, unit, location, onLoaded, onError }: WeatherMapProps) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<L.Map | null>(null);
   const tileLayer = useRef<L.TileLayer | null>(null);
   const weatherLayer = useRef<L.LayerGroup | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
+  const queryClient = useQueryClient();
+  
+  // Load map tiles with reduced quality initially for faster loading
+  const [highQualityTiles, setHighQualityTiles] = useState(false);
+  
+  // Prefetch nearby locations weather data
+  const prefetchNearbyLocations = useCallback(() => {
+    if (!location) return;
+    
+    // Create a grid of nearby locations to prefetch
+    const offsets = [0.5, -0.5, 1, -1];
+    offsets.forEach(latOffset => {
+      offsets.forEach(lonOffset => {
+        if (latOffset === 0 && lonOffset === 0) return; // Skip current location
+        
+        const nearbyLat = location.lat + latOffset;
+        const nearbyLon = location.lon + lonOffset;
+        
+        // Prefetch weather data for nearby location
+        queryClient.prefetchQuery({
+          queryKey: ['weatherMap', nearbyLat.toFixed(2), nearbyLon.toFixed(2), mapType],
+          queryFn: async () => {
+            try {
+              const response = await fetch(
+                `https://api.open-meteo.com/v1/forecast?latitude=${nearbyLat}&longitude=${nearbyLon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,weather_code,cloud_cover&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
+              );
+              
+              if (!response.ok) {
+                throw new Error('Failed to fetch nearby weather data');
+              }
+              
+              return await response.json();
+            } catch (error) {
+              // Silently fail for prefetch
+              return null;
+            }
+          },
+          staleTime: 1000 * 60 * 15, // 15 minutes
+        });
+      });
+    });
+  }, [location, mapType, queryClient]);
 
   // Fetch weather data with React Query
   const { data: weatherData, isLoading, error } = useQuery({
-    queryKey: ['weatherMap', location.lat, location.lon, mapType],
+    queryKey: ['weatherMap', location.lat.toFixed(2), location.lon.toFixed(2), mapType],
     queryFn: async () => {
       try {
-        // Use Open-Meteo API for weather data
-        const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,weather_code,cloud_cover&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
+        // Use optimized weather API with built-in caching
+        const data = await fetchWeatherDataOptimized(
+          location.lat,
+          location.lon
         );
         
-        if (!response.ok) {
-          throw new Error('Failed to fetch weather data');
-        }
+        // After successful fetch, prefetch nearby locations
+        setTimeout(() => prefetchNearbyLocations(), 1000);
         
-        return await response.json();
+        return data;
       } catch (error) {
         console.error("Error fetching weather data:", error);
+        if (onError) onError('Failed to load weather data');
         throw error;
       }
     },
     staleTime: 1000 * 60 * 15, // 15 minutes
+    retry: 2,
   });
 
   // Initialize map once
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return;
     
-    // Initialize map
+    // Initialize map with faster loading settings
     leafletMap.current = L.map(mapRef.current, {
       zoomControl: false, // We'll add it in a better position
       attributionControl: false, // We'll add it manually for better styling
-    }).setView([location.lat, location.lon], 6);
+      preferCanvas: true, // Use canvas for faster rendering
+      renderer: L.canvas({ padding: 0.5 }), // Configure canvas renderer
+      fadeAnimation: false, // Disable animations initially for faster loading
+      zoomAnimation: false, // Disable animations initially for faster loading
+      markerZoomAnimation: false, // Disable animations initially for faster loading
+    }).setView([location.lat, location.lon], 5); // Start with lower zoom for faster loading
     
     // Add zoom control to the top-right
     L.control.zoom({
@@ -72,52 +124,52 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
     // Create a layer group for weather visualization
     weatherLayer.current = L.layerGroup().addTo(leafletMap.current);
     
-    // Add base map layer with modern style
-    tileLayer.current = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" class="text-blue-500 hover:text-blue-700 dark:text-blue-400">OpenStreetMap</a> | <a href="https://carto.com/attributions" class="text-blue-500 hover:text-blue-700 dark:text-blue-400">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
-    }).addTo(leafletMap.current);
-    
-    // Add a darker theme for dark mode
-    const darkModeMedia = window.matchMedia('(prefers-color-scheme: dark)');
-    const htmlElement = document.querySelector('html');
-    
-    const updateMapTheme = () => {
-      if (!leafletMap.current || !tileLayer.current) return;
+    // Function to update tile layer based on theme
+    const updateMapTheme = (isDarkMode: boolean, highQuality: boolean = false) => {
+      if (!leafletMap.current) return;
       
-      const isDarkMode = htmlElement?.classList.contains('dark') || 
-                         darkModeMedia.matches;
+      // Remove current tile layer if exists
+      if (tileLayer.current) {
+        leafletMap.current.removeLayer(tileLayer.current);
+      }
       
-      // Remove current tile layer
-      leafletMap.current.removeLayer(tileLayer.current);
+      // Choose tile URL based on quality and theme
+      const quality = highQuality ? '' : '{r}';
+      const tileUrl = isDarkMode
+        ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}${quality}.png`
+        : `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}${quality}.png`;
       
       // Add appropriate tile layer based on theme
-      if (isDarkMode) {
-        tileLayer.current = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" class="text-blue-400 hover:text-blue-300">OpenStreetMap</a> | <a href="https://carto.com/attributions" class="text-blue-400 hover:text-blue-300">CARTO</a>',
-          subdomains: 'abcd',
-          maxZoom: 20
-        }).addTo(leafletMap.current);
-      } else {
-        tileLayer.current = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" class="text-blue-500 hover:text-blue-700">OpenStreetMap</a> | <a href="https://carto.com/attributions" class="text-blue-500 hover:text-blue-700">CARTO</a>',
-          subdomains: 'abcd',
-          maxZoom: 20
-        }).addTo(leafletMap.current);
-      }
+      tileLayer.current = L.tileLayer(tileUrl, {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" class="text-blue-500 hover:text-blue-700 dark:text-blue-400">OpenStreetMap</a> | <a href="https://carto.com/attributions" class="text-blue-500 hover:text-blue-700 dark:text-blue-400">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20,
+        minZoom: 3,
+        tileSize: 256, // Smaller tile size for faster loading
+        updateWhenIdle: true, // Only load tiles when panning/zooming is complete
+        keepBuffer: 2, // Keep fewer tiles in memory
+      }).addTo(leafletMap.current);
     };
+    
+    // Get dark mode state
+    const darkModeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    const htmlElement = document.querySelector('html');
+    const isDarkMode = htmlElement?.classList.contains('dark') || darkModeMedia.matches;
+    
+    // Start with lower quality tiles for faster loading
+    updateMapTheme(isDarkMode, false);
     
     // Listen for theme changes
     const observer = new MutationObserver(() => {
-      updateMapTheme();
+      const isDarkMode = htmlElement?.classList.contains('dark') || darkModeMedia.matches;
+      updateMapTheme(isDarkMode, highQualityTiles);
     });
     
     if (htmlElement) {
       observer.observe(htmlElement, { attributes: true });
     }
     
-    // Initial marker
+    // Initial marker with simplified icon
     markerRef.current = L.marker([location.lat, location.lon], {
       icon: L.divIcon({
         className: 'custom-div-icon',
@@ -130,23 +182,53 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
       })
     }).addTo(leafletMap.current);
     
-    markerRef.current.bindPopup(`<div class="text-center font-medium">${location.name}</div>`).openPopup();
+    // Add simple popup with just text initially
+    markerRef.current.bindPopup(location.name).openPopup();
     
+    // Mark map as ready
     setIsMapReady(true);
+    
+    // After a delay, switch to high quality tiles and enable animations
+    setTimeout(() => {
+      if (leafletMap.current) {
+        setHighQualityTiles(true);
+        updateMapTheme(isDarkMode, true);
+        
+        // Re-enable animations
+        leafletMap.current.options.fadeAnimation = true;
+        leafletMap.current.options.zoomAnimation = true;
+        leafletMap.current.options.markerZoomAnimation = true;
+        
+        // Adjust zoom level to show more detail
+        leafletMap.current.setZoom(6);
+        
+        // Update the popup with better formatting
+        if (markerRef.current) {
+          markerRef.current.setPopupContent(`<div class="text-center font-medium">${location.name}</div>`);
+        }
+        
+        // Notify parent component that map is fully loaded
+        if (onLoaded) onLoaded();
+      }
+    }, 1500);
     
     return () => {
       // Clean up on unmount
       observer.disconnect();
+      if (leafletMap.current) {
+        leafletMap.current.remove();
+        leafletMap.current = null;
+      }
     };
-  }, []);
+  }, [location.lat, location.lon, location.name, onLoaded]);
 
   // Update map center and marker when location changes
   useEffect(() => {
     if (!leafletMap.current || !isMapReady) return;
     
     // Update map view with animation
-    leafletMap.current.flyTo([location.lat, location.lon], 6, {
-      duration: 1.5, // Animation duration in seconds
+    leafletMap.current.flyTo([location.lat, location.lon], leafletMap.current.getZoom(), {
+      duration: 1, // Shorter animation duration
     });
     
     // Update marker position and popup
@@ -172,32 +254,34 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
     const visualizeWeatherData = () => {
       if (!weatherLayer.current) return;
       
-      // Create a heat-map style visualization
-      // For actual implementation, we'd generate points based on real data
-      // Here we're generating a simplified view using the API data
-      
-      // Generate grid of points around the selected location
-      const gridSize = 10;
+      // Create a heat-map style visualization with fewer points for better performance
+      // Reduce grid size for initial load
+      const gridSize = 8; // Reduced grid size
       const radius = 2; // degrees
       const points = [];
       
-      for (let i = -gridSize; i <= gridSize; i++) {
-        for (let j = -gridSize; j <= gridSize; j++) {
+      // Calculate grid points with improved performance
+      for (let i = -gridSize; i <= gridSize; i += 1) {
+        for (let j = -gridSize; j <= gridSize; j += 1) {
+          // Skip points that would be too close to others (reduce density)
+          if ((i % 2 !== 0 || j % 2 !== 0) && Math.abs(i) + Math.abs(j) > 3) continue;
+          
           const pointLat = location.lat + (i * radius / gridSize);
           const pointLon = location.lon + (j * radius / gridSize);
           
           // Skip points too far from center
           if (Math.sqrt(i*i + j*j) > gridSize) continue;
           
-          // Base value on the selected data type, with random variation to simulate a real map
+          // Base value on the selected data type, with simplified random variation
           let value;
-          const randomFactor = 0.7 + Math.random() * 0.6; // 0.7 to 1.3 range for variation
+          // Use a simpler random factor calculation
+          const randomFactor = 0.8 + (Math.random() * 0.4);
           
           switch (mapType) {
-            case 'temp':
+            case 'temperature':
               // Temperature scaled by distance from center and random factor
               const baseTemp = weatherData.current.temperature_2m;
-              const distanceFactor = 1 - (Math.sqrt(i*i + j*j) / gridSize) * 0.4; // Closer points more similar
+              const distanceFactor = 1 - (Math.sqrt(i*i + j*j) / gridSize) * 0.4;
               value = baseTemp * distanceFactor * randomFactor;
               break;
             
@@ -227,6 +311,9 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
         }
       }
       
+      // Use a more efficient rendering method by batching the circles into fewer layer additions
+      const layers: L.Circle[] = [];
+      
       // Render points with colors and sizes based on values
       points.forEach(point => {
         let color = 'blue';
@@ -234,7 +321,7 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
         let radius = 15000;
         
         // Set visualization properties based on mapType and value
-        if (mapType === 'temp') {
+        if (mapType === 'temperature') {
           // Temperature visualization (blue to red)
           if (unit === 'fahrenheit') {
             // Convert to Fahrenheit for scale calculation
@@ -248,23 +335,26 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
             color = 'rgb(30, 100, 255)';
             opacity = 0.6;
           } else if (point.value < 20) {
-            color = 'rgb(50, 150, 255)';
-            opacity = 0.5;
+            color = 'rgb(90, 160, 255)';
+            opacity = 0.6;
           } else if (point.value < 25) {
-            color = 'rgb(100, 200, 50)';
+            color = 'rgb(160, 200, 255)';
             opacity = 0.5;
           } else if (point.value < 30) {
-            color = 'rgb(255, 200, 0)';
-            opacity = 0.6;
+            color = 'rgb(255, 230, 180)';
+            opacity = 0.5;
           } else if (point.value < 35) {
-            color = 'rgb(255, 100, 0)';
+            color = 'rgb(255, 190, 130)';
+            opacity = 0.6;
+          } else if (point.value < 40) {
+            color = 'rgb(255, 120, 50)';
             opacity = 0.7;
           } else {
-            color = 'rgb(200, 0, 0)';
-            opacity = 0.7;
+            color = 'rgb(225, 50, 0)';
+            opacity = 0.8;
           }
           
-          radius = 20000 + (point.value * 500);
+          radius = 15000 + (Math.abs(point.value) * 300);
         }
         else if (mapType === 'precipitation') {
           // Precipitation visualization (light to dark blue)
@@ -328,19 +418,31 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
         }
         
         // Create circle
-        L.circle([point.lat, point.lon], {
+        const circle = L.circle([point.lat, point.lon], {
           color: 'transparent',
           fillColor: color,
           fillOpacity: opacity,
-          radius: radius
-        }).addTo(weatherLayer.current!);
+          radius: radius,
+          renderer: leafletMap.current?.options.renderer // Use canvas renderer
+        });
+        
+        layers.push(circle);
       });
+      
+      // Add all circles at once for better performance
+      if (weatherLayer.current) {
+        const layerGroup = L.layerGroup(layers);
+        weatherLayer.current.addLayer(layerGroup);
+      }
     };
     
-    visualizeWeatherData();
+    // Use requestAnimationFrame for smoother rendering
+    requestAnimationFrame(() => visualizeWeatherData());
     
     // Update map size to prevent rendering issues
-    leafletMap.current.invalidateSize();
+    if (leafletMap.current) {
+      leafletMap.current.invalidateSize();
+    }
     
   }, [weatherData, mapType, unit, location, isMapReady, isLoading]);
 
@@ -366,10 +468,10 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
         }}
       />
       
-      {/* Map overlay info */}
-      <div className="absolute bottom-4 left-4 z-10 p-3 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-lg shadow-lg transition-all duration-300 hover:bg-white dark:hover:bg-slate-800">
-        <div className="text-sm font-medium">
-          {weatherData && (
+      {/* Map overlay info - render only when data is available */}
+      {weatherData && (
+        <div className="absolute bottom-4 left-4 z-10 p-3 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-lg shadow-lg transition-all duration-300 hover:bg-white dark:hover:bg-slate-800">
+          <div className="text-sm font-medium">
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -383,9 +485,9 @@ const WeatherMap = memo(({ mapType, unit, location }: WeatherMapProps) => {
               <p>Wind: {weatherData.current.wind_speed_10m} km/h</p>
               <p>Clouds: {weatherData.current.cloud_cover}%</p>
             </motion.div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 });
