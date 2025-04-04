@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
@@ -7,7 +8,8 @@ import {
   Droplets, 
   AlertTriangle,
   Gauge,
-  Info
+  Info,
+  RefreshCw
 } from "lucide-react";
 import { Navigation } from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -16,16 +18,9 @@ import { LoadingScreen } from "@/components/LoadingScreen";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import { LocationSearch } from "@/components/LocationSearch";
-import { fetchAirQualityData } from "@/lib/utils/air-quality-api";
-
-interface AirQualityLevels {
-  [key: string]: {
-    title: string;
-    color: string;
-    description: string;
-  }
-}
+import { fetchAirQualityData, airQualityLevels, getAirQualityLevel, getHealthRecommendations } from "@/lib/utils/air-quality-api";
 
 export default function AirQuality() {
   const [location, setLocation] = useState({ lat: 51.5074, lon: -0.1278, name: "London" }); // Default to London
@@ -48,10 +43,11 @@ export default function AirQuality() {
           name: "Your Location" 
         });
         setIsLoadingLocation(false);
+        toast.success("Using your current location");
       }, (err) => {
         console.error("Geolocation error:", err);
         setIsLoadingLocation(false);
-        // Keep default location if geolocation fails
+        toast.error("Could not access your location, using default");
       });
     }
   }, []);
@@ -85,47 +81,15 @@ export default function AirQuality() {
     }
   };
   
+  const handleRefresh = () => {
+    toast.info("Refreshing air quality data...");
+    refetch();
+  };
+  
   const pageVariants = {
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -20 }
-  };
-
-  // Air quality levels definitions
-  const airQualityLevels: AirQualityLevels = {
-    "1": { 
-      title: "Good", 
-      color: "bg-green-500", 
-      description: "Air quality is satisfactory, and air pollution poses little or no risk." 
-    },
-    "2": { 
-      title: "Moderate", 
-      color: "bg-yellow-500", 
-      description: "Air quality is acceptable. However, there may be a risk for some people, particularly those who are unusually sensitive to air pollution." 
-    },
-    "3": { 
-      title: "Unhealthy for Sensitive Groups", 
-      color: "bg-orange-500", 
-      description: "Members of sensitive groups may experience health effects. The general public is less likely to be affected."
-    },
-    "4": { 
-      title: "Unhealthy", 
-      color: "bg-red-500", 
-      description: "Some members of the general public may experience health effects; members of sensitive groups may experience more serious health effects."
-    },
-    "5": { 
-      title: "Very Unhealthy", 
-      color: "bg-purple-500", 
-      description: "Health alert: The risk of health effects is increased for everyone."
-    }
-  };
-
-  const getAirQualityLevel = (aqi: number) => {
-    if (aqi <= 20) return "1";
-    if (aqi <= 40) return "2";
-    if (aqi <= 60) return "3";
-    if (aqi <= 80) return "4";
-    return "5";
   };
 
   if (isLoading) return <LoadingScreen />;
@@ -134,6 +98,7 @@ export default function AirQuality() {
 
   const currentAQI = airQualityData?.current.european_aqi || 0;
   const aqiLevel = getAirQualityLevel(currentAQI);
+  const recommendations = getHealthRecommendations(currentAQI);
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800 transition-all duration-500">
@@ -141,6 +106,9 @@ export default function AirQuality() {
         <header className="flex flex-col space-y-6 mb-8">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl md:text-3xl font-bold gradient-text">FGWeather</h1>
+            <Button variant="ghost" size="icon" onClick={handleRefresh} className="rounded-full">
+              <RefreshCw className="h-5 w-5" />
+            </Button>
           </div>
           <Navigation />
           <LocationSearch 
@@ -207,6 +175,9 @@ export default function AirQuality() {
                   
                   <div className="w-full p-4 rounded-lg bg-white/30 dark:bg-slate-700/30 backdrop-blur-sm">
                     <p className="text-center mb-3">{airQualityLevels[aqiLevel]?.description}</p>
+                    <p className="text-center text-sm text-muted-foreground">
+                      Updated {new Date(airQualityData?.current.time || "").toLocaleTimeString()}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -293,9 +264,7 @@ export default function AirQuality() {
                   <Wind className="h-8 w-8 text-blue-500" />
                   <h3 className="font-medium">Ventilation</h3>
                   <p className="text-sm text-muted-foreground">
-                    {currentAQI < 40 
-                      ? "It's a good time to open windows and ventilate." 
-                      : "Keep windows closed to avoid pollutants entering your home."}
+                    {recommendations.ventilation}
                   </p>
                 </div>
                 
@@ -303,9 +272,7 @@ export default function AirQuality() {
                   <Droplets className="h-8 w-8 text-blue-500" />
                   <h3 className="font-medium">Outdoor Activities</h3>
                   <p className="text-sm text-muted-foreground">
-                    {currentAQI < 60 
-                      ? "Safe for most outdoor activities." 
-                      : "Consider limiting prolonged outdoor exertion."}
+                    {recommendations.outdoor}
                   </p>
                 </div>
                 
@@ -313,9 +280,7 @@ export default function AirQuality() {
                   <Gauge className="h-8 w-8 text-blue-500" />
                   <h3 className="font-medium">Sensitive Groups</h3>
                   <p className="text-sm text-muted-foreground">
-                    {currentAQI < 40 
-                      ? "No special precautions needed." 
-                      : "Children, elderly and those with respiratory issues should take precautions."}
+                    {recommendations.sensitive}
                   </p>
                 </div>
               </div>
@@ -323,7 +288,7 @@ export default function AirQuality() {
           </Card>
         </motion.main>
         
-        <footer className="mt-8 pt-4 text-sm text-center text-white/70 dark:text-slate-400">
+        <footer className="mt-8 pt-4 text-sm text-center text-muted-foreground">
           <p>Developed by: Faiz Nasir | Owned by FGCompany Original</p>
         </footer>
       </div>
