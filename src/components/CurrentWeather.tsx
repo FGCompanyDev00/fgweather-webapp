@@ -1,7 +1,8 @@
-import { Droplets, Thermometer, Wind, Gauge, Calendar, Umbrella, Sun } from "lucide-react";
+import { Droplets, Thermometer, Wind, Gauge, Calendar, Umbrella, Sun, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { WeatherIcon } from "./WeatherIcons";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WeatherData } from "@/lib/utils/weather-api";
 import { 
   formatDate, 
@@ -14,10 +15,11 @@ import {
 interface CurrentWeatherProps {
   weatherData: WeatherData;
   locationName: string;
+  isCurrentLocation?: boolean;
   unit: 'celsius' | 'fahrenheit';
 }
 
-export function CurrentWeather({ weatherData, locationName, unit }: CurrentWeatherProps) {
+export function CurrentWeather({ weatherData, locationName, isCurrentLocation = false, unit }: CurrentWeatherProps) {
   const { current } = weatherData;
   const condition = mapWeatherCode(current.weatherCode, current.isDay);
   const windInfo = getWindInfo(current.windSpeed, current.windDirection);
@@ -32,6 +34,18 @@ export function CurrentWeather({ weatherData, locationName, unit }: CurrentWeath
             <span className="text-xl md:text-2xl font-normal">{formattedDate}</span>
             <div className="flex items-center space-x-2">
               <h1 className="text-2xl md:text-4xl font-bold line-clamp-1">{locationName}</h1>
+              {isCurrentLocation && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <MapPin className="h-5 w-5 text-blue-500" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Your current location</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
           </CardTitle>
         </CardHeader>

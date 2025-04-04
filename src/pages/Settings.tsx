@@ -480,13 +480,13 @@ export default function Settings() {
                 </div>
                 
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <Label htmlFor="notifications">Weather Alerts</Label>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <Label htmlFor="notifications">Weather Alerts</Label>
                       <p className="text-sm text-muted-foreground">Receive notifications for weather updates</p>
-                    </div>
-                    <Switch 
-                      id="notifications" 
+                  </div>
+                  <Switch 
+                    id="notifications" 
                       checked={weatherAlerts.enabled} 
                       onCheckedChange={handleToggleWeatherAlerts}
                       disabled={!notificationSupported || notificationPermission === 'denied'}

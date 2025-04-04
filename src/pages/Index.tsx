@@ -14,6 +14,7 @@ import { Navigation } from '@/components/Navigation';
 import { AnimatedBackground } from '@/components/AnimatedBackground';
 import { useToast } from "@/hooks/use-toast";
 import { useLoading } from '@/App';
+import { MapPin } from 'lucide-react';
 import { 
   Coordinates, 
   GeocodingResult, 
@@ -28,6 +29,7 @@ import {
   WeatherCondition
 } from '@/lib/utils/weather-utils';
 import { Helmet } from "react-helmet-async";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -66,6 +68,10 @@ const Index = () => {
     localStorage.getItem('fg-weather-location-name') || ''
   );
   
+  const [isCurrentLocation, setIsCurrentLocation] = useState<boolean>(() => 
+    localStorage.getItem('fg-weather-is-current-location') === 'true'
+  );
+  
   const [unit, setUnit] = useState<WeatherUnit>(() => {
     // Initialize from localStorage or default to celsius
     return (localStorage.getItem('fg-weather-unit') as WeatherUnit) || 'celsius';
@@ -79,7 +85,7 @@ const Index = () => {
     localStorage.setItem('fg-weather-unit', unit);
   }, [unit]);
   
-  // Save coordinates and location name to localStorage when they change
+  // Save coordinates and location info to localStorage when they change
   useEffect(() => {
     if (coordinates) {
       localStorage.setItem('fg-weather-coordinates', JSON.stringify(coordinates));
@@ -87,7 +93,8 @@ const Index = () => {
     if (locationName) {
       localStorage.setItem('fg-weather-location-name', locationName);
     }
-  }, [coordinates, locationName]);
+    localStorage.setItem('fg-weather-is-current-location', isCurrentLocation.toString());
+  }, [coordinates, locationName, isCurrentLocation]);
 
   // Fetch weather data
   const {
@@ -140,6 +147,7 @@ const Index = () => {
             
             setCoordinates(coords);
             setLocationName(locationName);
+            setIsCurrentLocation(true);
             
             toast({
               title: "Location detected",
@@ -149,6 +157,7 @@ const Index = () => {
             console.error("Geocoding error:", geocodeError);
             setCoordinates(coords);
             setLocationName("Current Location");
+            setIsCurrentLocation(true);
             
             toast({
               title: "Location detected",
@@ -178,6 +187,7 @@ const Index = () => {
       longitude: location.longitude
     });
     setLocationName(location.name);
+    setIsCurrentLocation(false);
   };
 
   // Handle current location button
@@ -196,6 +206,7 @@ const Index = () => {
         
         setCoordinates(coords);
         setLocationName(locationName);
+        setIsCurrentLocation(true);
         
         toast({
           title: "Location updated",
@@ -205,6 +216,7 @@ const Index = () => {
         console.error("Geocoding error:", geocodeError);
         setCoordinates(coords);
         setLocationName("Current Location");
+        setIsCurrentLocation(true);
         
         toast({
           title: "Location updated",
@@ -314,7 +326,8 @@ const Index = () => {
                 <motion.div variants={itemVariants}>
                   <CurrentWeather 
                     weatherData={weatherData} 
-                    locationName={locationName} 
+                    locationName={locationName}
+                    isCurrentLocation={isCurrentLocation}
                     unit={unit}
                   />
                 </motion.div>

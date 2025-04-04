@@ -7,7 +7,8 @@ import {
   Droplets, 
   AlertTriangle,
   Gauge,
-  Info
+  Info,
+  MapPin
 } from "lucide-react";
 import { Navigation } from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -32,8 +33,21 @@ interface AirQualityLevels {
   }
 }
 
+interface LocationState {
+  lat: number;
+  lon: number;
+  name: string;
+  isCurrentLocation?: boolean;
+}
+
 export default function AirQuality() {
-  const [location, setLocation] = useState({ lat: 3.1390, lon: 101.6869, name: "Kuala Lumpur" }); // Default to Kuala Lumpur
+  const [location, setLocation] = useState<LocationState>({ 
+    lat: 3.1390, 
+    lon: 101.6869, 
+    name: "Kuala Lumpur",
+    isCurrentLocation: false
+  }); // Default to Kuala Lumpur
+  
   const { setIsLoading, setLoadingMessage } = useLoading();
   
   const { data: airQualityData, isLoading, error, refetch } = useQuery({
@@ -50,6 +64,7 @@ export default function AirQuality() {
     if (rememberLocation) {
       const savedCoords = localStorage.getItem('fg-weather-coordinates');
       const savedLocationName = localStorage.getItem('fg-weather-location-name');
+      const isCurrentLocation = localStorage.getItem('fg-weather-is-current-location') === 'true';
       
       if (savedCoords && savedLocationName) {
         try {
@@ -57,7 +72,8 @@ export default function AirQuality() {
           setLocation({ 
             lat: coords.latitude, 
             lon: coords.longitude,
-            name: savedLocationName
+            name: savedLocationName,
+            isCurrentLocation: isCurrentLocation || false
           });
         } catch (e) {
           console.error("Error parsing saved coordinates:", e);
@@ -81,10 +97,16 @@ export default function AirQuality() {
           const data = await response.json();
           const locationName = data.results?.[0]?.name || "Your Location";
           
+          // Save to localStorage that this is the current location
+          if (localStorage.getItem('fg-weather-remember-location') === 'true') {
+            localStorage.setItem('fg-weather-is-current-location', 'true');
+          }
+          
           setLocation({ 
             lat: position.coords.latitude, 
             lon: position.coords.longitude,
-            name: locationName
+            name: locationName,
+            isCurrentLocation: true
           });
           
           toast.success(`Location detected: ${locationName}`);
@@ -93,7 +115,8 @@ export default function AirQuality() {
           setLocation({
             lat: position.coords.latitude,
             lon: position.coords.longitude,
-            name: "Your Location"
+            name: "Your Location",
+            isCurrentLocation: true
           });
         } finally {
           setIsLoading(false);
@@ -107,7 +130,19 @@ export default function AirQuality() {
   }, []);
 
   const handleLocationChange = (newLocation: { lat: number; lon: number; name: string }) => {
-    setLocation(newLocation);
+    // When manually selecting a location, it's not the user's current location
+    setLocation({
+      lat: newLocation.lat,
+      lon: newLocation.lon,
+      name: newLocation.name,
+      isCurrentLocation: false
+    });
+    
+    // Update localStorage flag
+    if (localStorage.getItem('fg-weather-remember-location') === 'true') {
+      localStorage.setItem('fg-weather-is-current-location', 'false');
+    }
+    
     toast.success(`Location updated to ${newLocation.name}`);
   };
   
@@ -217,8 +252,18 @@ export default function AirQuality() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-2xl">Air Quality Index</CardTitle>
-                  <CardDescription>
-                    {location.name} - {new Date().toLocaleDateString()} 
+                  <CardDescription className="flex items-center">
+                    {location.name}
+                    {location.isCurrentLocation && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <MapPin className="ml-1 h-4 w-4 text-blue-500" />
+                        </TooltipTrigger>
+                        <TooltipContent>Your current location</TooltipContent>
+                      </Tooltip>
+                    )}
+                    <span className="mx-1">-</span>
+                    {new Date().toLocaleDateString()}
                   </CardDescription>
                 </div>
                 <Badge 

@@ -26,6 +26,10 @@ export function LocationSearch({
   const [results, setResults] = useState<GeocodingResult[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [showResults, setShowResults] = useState<boolean>(false);
+  const [isUsingCurrentLocation, setIsUsingCurrentLocation] = useState<boolean>(() => {
+    return localStorage.getItem('fg-weather-is-current-location') === 'true';
+  });
+  
   const searchRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { setIsLoading, setLoadingMessage } = useLoading();
@@ -73,6 +77,18 @@ export function LocationSearch({
     };
   }, [query, debouncedSearch]);
 
+  // Check if current location status changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setIsUsingCurrentLocation(localStorage.getItem('fg-weather-is-current-location') === 'true');
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
   const handleSelectLocation = (location: GeocodingResult) => {
     if (onSelectLocation) {
       onSelectLocation(location);
@@ -89,6 +105,7 @@ export function LocationSearch({
     setQuery('');
     setResults([]);
     setShowResults(false);
+    setIsUsingCurrentLocation(false); // No longer using current location
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -109,6 +126,7 @@ export function LocationSearch({
     
     if (onUseCurrentLocation) {
       onUseCurrentLocation();
+      setIsUsingCurrentLocation(true);
     }
   };
 
@@ -152,11 +170,12 @@ export function LocationSearch({
         
         <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
           <Button 
-            variant="outline"
+            variant={isUsingCurrentLocation ? "default" : "outline"}
             size="icon"
             className="rounded-full aspect-square h-10 flex-shrink-0"
             onClick={handleCurrentLocation}
             disabled={isLoadingLocation}
+            title="Use current location"
           >
             {isLoadingLocation ? (
               <Loader2 className="h-5 w-5 animate-spin" />
