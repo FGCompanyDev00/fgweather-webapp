@@ -8,15 +8,15 @@ import { GeocodingResult, searchLocation } from '@/lib/utils/weather-api';
 import { useToast } from "@/hooks/use-toast";
 
 interface LocationSearchProps {
-  onLocationChange: (location: { lat: number; lon: number; name: string }) => void;
-  onUseCurrentLocation?: () => void;
-  isLoadingLocation?: boolean;
+  onSelectLocation: (location: GeocodingResult) => void;
+  onUseCurrentLocation: () => void;
+  isLoadingLocation: boolean;
 }
 
 export function LocationSearch({ 
-  onLocationChange, 
+  onSelectLocation, 
   onUseCurrentLocation,
-  isLoadingLocation = false
+  isLoadingLocation 
 }: LocationSearchProps) {
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<GeocodingResult[]>([]);
@@ -45,11 +45,7 @@ export function LocationSearch({
   };
 
   const handleSelectLocation = (location: GeocodingResult) => {
-    onLocationChange({
-      lat: location.latitude,
-      lon: location.longitude,
-      name: location.name
-    });
+    onSelectLocation(location);
     setQuery('');
     setResults([]);
     setShowResults(false);
@@ -65,12 +61,6 @@ export function LocationSearch({
     setQuery('');
     setResults([]);
     setShowResults(false);
-  };
-
-  const handleUseCurrentLocation = () => {
-    if (onUseCurrentLocation) {
-      onUseCurrentLocation();
-    }
   };
 
   // Close results when clicking outside
@@ -115,7 +105,7 @@ export function LocationSearch({
           variant="outline"
           size="icon"
           className="ml-2 rounded-full aspect-square h-10"
-          onClick={handleUseCurrentLocation}
+          onClick={onUseCurrentLocation}
           disabled={isLoadingLocation}
         >
           {isLoadingLocation ? (

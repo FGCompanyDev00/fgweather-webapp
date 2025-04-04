@@ -55,30 +55,6 @@ export default function WeatherMapPage() {
     toast.success(`Map centered on ${newLocation.name}`);
   };
   
-  const handleUseCurrentLocation = () => {
-    if (navigator.geolocation) {
-      setIsLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-            name: "Your Location"
-          });
-          setIsLoading(false);
-          toast.success("Using your current location");
-        },
-        (error) => {
-          console.error("Geolocation error:", error);
-          toast.error("Could not get your location");
-          setIsLoading(false);
-        }
-      );
-    } else {
-      toast.error("Geolocation is not supported by your browser");
-    }
-  };
-  
   const pageVariants = {
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
@@ -97,11 +73,7 @@ export default function WeatherMapPage() {
             <h1 className="text-2xl md:text-3xl font-bold gradient-text">FGWeather</h1>
           </div>
           <Navigation />
-          <LocationSearch 
-            onLocationChange={handleLocationChange} 
-            onUseCurrentLocation={handleUseCurrentLocation}
-            isLoadingLocation={isLoading}
-          />
+          <LocationSearch onLocationChange={handleLocationChange} />
         </header>
         
         <motion.main
